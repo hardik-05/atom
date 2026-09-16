@@ -163,7 +163,7 @@ not built? Building five live adapters is roughly five times the work and five t
 credential-management surface of building two.
 *Proposed default:* **Upstox and Dhan fully built and tested**; Zerodha, Groww and Shoonya
 specified in the adapter contract with documented stubs, built on demand.
-`Answer:`
+`Answer:` **ALL FIVE brokers fully built and tested in v1** — Upstox, Dhan, Zerodha, Groww, Shoonya. *(Confirmed 2026-09-16.)* Consequence: live credentials and a funded, testable account are required for each of the five before that adapter can be validated — see Q-024, which is now a blocker.
 
 **Q-021** 🟠 **Broker adapter contract.** Confirm the capability surface every broker
 adapter must implement, so new brokers are pure configuration:
@@ -403,7 +403,7 @@ silently change the strategy.
 trades now and an ETF that gapped down 4% this morning is exactly the candidate the
 strategy wants. But the *mean* uses closes only, and the LTP used is snapshotted and logged
 so the decision is reproducible after the fact.
-`Answer:`
+`Answer:` **(b) Live LTP against a mean of daily closes.** The LTP used for every ranking decision is snapshotted into the run record and the log so the decision stays reproducible. *(Confirmed 2026-09-16.)*
 
 **Q-053** 🟠 **Quantity derivation.** Given a ₹10,000 per-trade budget and a price of ₹247,
 quantity = floor(10000/247) = 40 (₹9,880). Confirm floor, and what happens when one unit
@@ -429,7 +429,7 @@ and the engine is off, so nobody re-places it. Options:
 
 *Proposed default:* **(c)**. This is the single most consequential broker-capability
 difference in the project and it deserves its own design document.
-`Answer:`
+`Answer:` **(c) GTT/GTC where the broker supports it, DAY limit re-placed at run start as the fallback.** Per-broker GTT semantics, validity periods and modification rules go into the broker capability matrix (doc 16) and get their own section in SELL-LOGIC (doc 20). *(Confirmed 2026-09-16.)*
 
 **Q-056** 🟠 **Duplicate sell orders.** At run start you place sells for all holdings. If
 yesterday's sell is still resting, do we skip, cancel-and-replace, or modify?
@@ -918,7 +918,7 @@ their credentials. Are Person A and Person B family/self, or external clients?
 operating your own accounts. If these are external clients paying for the service, SEBI
 registration (RIA or PMS) and a much heavier compliance and disclosure surface come into
 play, and the design would need to reflect that. Please confirm explicitly. `[important]`
-`Answer:`
+`Answer:` **Self and family, own accounts.** No SEBI intermediary registration implied; no external-client compliance surface in scope. *(Confirmed 2026-09-16.)* If this changes, the design must be revisited — flagged in the threat model (doc 37).
 
 **Q-133** 🟡 **Broker T&C.** Have you confirmed each broker's API terms permit automated
 order placement for an account you do not personally own?
