@@ -349,5 +349,60 @@ Two candidate uses, both deferred pending your decision (Q-147):
 | Q-144 | EBS root volume size, given 30 days of local log retention |
 | ~~Q-145~~ | ✅ Resolved — VOLUME is units; Volume × LTP reconciles to the VALUE (₹ cr) column |
 | Q-146 | Exempt trade/order/position/harvest tables from the 90-day purge? |
-| Q-147 | Use NAV / i-NAV premium-discount as a buy guard rail or ranking input? Validate the feed first |
-| Q-148 | Full list of NSE ETF CATEGORY values — only EQUITY, COMMODITY, GLOBAL and DEBT observed so far |
+| ~~Q-147~~ | ✅ Resolved by D-034b — implemented as a configurable veto gate |
+| ~~Q-148~~ | ✅ Resolved by D-036 — five values, verified across all 350 rows |
+
+---
+
+## Round 4 — 2026-09-17
+
+Driven by the operator-supplied NSE snapshot of all 350 ETFs
+(`docs/99-vendor-docs/nse/MW-ETF-17-Sep-2026.csv`). Full specification in
+[`../04-strategy/NAV-PREMIUM-CHECK.md`](../04-strategy/NAV-PREMIUM-CHECK.md).
+
+**D-034a — The "Metals" bucket is renamed "COMMODITY".** Canonical buckets are
+**EQUITY · COMMODITY · GLOBAL**, matching NSE's vocabulary. All documents, schema columns,
+config keys and UI labels use these names.
+
+**D-034b — NAV premium check.** A veto gate applied after ranking, before ordering:
+- Master toggle `nav_check_enabled` per account (default ON).
+- `nav_premium_tolerance_pct` per account × category (default 2.00% equity and commodity).
+- Price **at or below NAV always passes** — no lower bound. The tolerance caps only how far
+  above NAV a buy may go.
+- Buy/sell ranking logic is unchanged; this is purely an additional gate.
+- Tolerances are editable before any run.
+
+**D-035 — Per-candidate decision logging.** Every evaluated candidate logs each gate's
+**inputs and verdict** separately, in evaluation order, stopping at the first failure and
+naming the gate and threshold breached — explicitly so that "deviation passed but NAV failed"
+is visible. Applies to buys, sells, averaging and harvest. Format and structured columns in
+the spec.
+
+**D-036 — NSE category strings must be normalised, not matched literally.**
+Verified across all 350 rows: `EQUITY` (260), `COMMODITY` (45), `DEBT` (38),
+**`GLOBAL INDICES`** (6 — *not* `GLOBAL`), **`Hybrid`** (1, title-case, sub-category
+Equity/Debt). DEBT and Hybrid are excluded.
+
+### ⚠️ Finding that needs an operator decision (Q-149)
+
+**The NAV check, as specified, switches the entire GLOBAL category off.** All five liquid
+global ETFs trade at premiums of **+18.9% to +183.1%** to NAV — MONQ50 at +183% is ₹330 for
+₹117 of assets. The only global ETF near a normal premium (HNGSNGBEES, +2.83%) fails the
+volume filter.
+
+This is structural, not a data error: SEBI's cap on overseas investment has frozen unit
+creation in these schemes, so AP arbitrage cannot close the gap. It also means price-based
+mean reversion offers no protection in this bucket — a premium collapse is a far larger move
+than any price-history model would predict.
+
+Five options are laid out in the spec; the recommendation is to **keep the 2% tolerance now**
+(global dormant) and treat global as a separate design question, possibly ranking it on
+premium-to-NAV rather than price deviation.
+
+Impact on the other buckets is negligible and correctly calibrated: commodity never binds
+(0 of 44 above NAV, median −0.64%), equity blocks 4 of 91 liquid candidates at 2%
+(median +0.74%).
+| Q-149 | **GLOBAL category — choose option A–E**; the NAV check currently disables it entirely |
+| Q-150 | Behaviour when NAV is unavailable (18 of 350 lack i-NAV, 3 lack NAV/LTP) |
+| Q-151 | Use NAV (EOD) or i-NAV (intraday) for the live check |
+| Q-152 | Confirm `Hybrid` is excluded |
