@@ -520,3 +520,30 @@ the averaging case correctly.*
 | Q-168 | Does the sell day count toward days held? |
 | Q-169 | Are charges included in the accrual base? |
 | Q-170 | Which free price provider, and should unmapped symbols block a FREE run? |
+
+**D-046 — Cost of capital accrues in two buckets: deployed and idle.** (Q-162 resolved.)
+Every rupee in an account is borrowed and accrues from arrival until repayment, sitting in
+exactly one bucket per day:
+- **Deployed** — open lots at cost, accrued **per lot** and attributed to trades.
+- **Idle** — the account cash balance, accrued and reported as **unattributed idle capital
+  drag**.
+
+A **withdrawal is a repayment** and stops interest on that amount from that day; a deposit is
+additional borrowing. A buy moves capital idle→deployed and a sell moves it back, with total
+interest continuous across the move. The resulting invariant —
+`per-lot accrual + idle accrual == total borrowed × r / 365` — is the primary test for the
+subsystem.
+
+The period summary gains an **idle capital drag** line and a **capital efficiency** measure
+(share of days capital was deployed rather than idle), which quantifies the cost of the
+depth/skip rules deliberately producing no-buy days.
+
+*Consequence: a complete per-account cash ledger becomes a hard requirement. Daily balances
+are **reconstructed** from deposits, withdrawals, buys, sells and charges rather than
+snapshotted daily — the engine is off most days — and reconciled against broker-reported
+balances whenever it does run, with any drift surfaced as an unknown cash movement rather
+than silently absorbed.*
+
+| Q-171 | 🔴 Does retained profit accrue interest (actual balance) or only principal? |
+| Q-172 | Do sale proceeds accrue as idle from trade date or settlement date? |
+| Q-173 | How is each account's opening balance anchored for reconstruction? |

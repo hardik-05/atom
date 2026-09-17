@@ -87,6 +87,90 @@ Gross P&L reads ₹700. True profit on closed trades is ₹622.32, and the open 
 ₹73.97 in the hole before it has done anything. That gap is the number this screen exists to
 show.
 
+
+---
+
+## 2A. Two accrual buckets: deployed and idle (D-046)
+
+> "Go ahead with both. Per-lot attribution gives the actual trade-system picture, and the
+> idle capital drag can be gathered from per-day funds held. If ₹50,000 is present and
+> ₹20,000 goes into lots, the ₹20,000 accrues per the lots; the ₹30,000 in the account also
+> gains interest, but it is not associated to the trades — it is an idle cash cost. If the
+> next day the user withdraws ₹20,000, that ₹20,000 has been paid back, so the idle cash cost
+> comes to ₹10,000."
+
+Every rupee in an account is borrowed and accrues from the day it arrives until the day it is
+repaid. It sits in exactly one of two buckets on any given day:
+
+```
+TOTAL BORROWED CAPITAL  =  DEPLOYED (open lots, at cost)  +  IDLE (cash balance)
+
+daily_interest_total  =  (deployed + idle) × r / 365
+```
+
+| Bucket | Base | Attribution |
+|---|---|---|
+| **Deployed** | Sum of open lots at cost | **Per lot**, per trade — flows into True Profit (§2) |
+| **Idle** | Account cash balance | **Unattributed** — reported as "idle capital drag" |
+
+### 2A.1 The invariant
+
+A buy moves capital from idle to deployed; a sell moves it back. **Total interest is
+continuous across the move** — no gap on the buy day, no double count. This is the primary
+test for the whole subsystem:
+
+```
+sum(per-lot accrual for day D) + idle accrual for day D
+    ==  total borrowed capital on day D × r / 365
+```
+
+Any discrepancy means capital has been lost or duplicated between the buckets.
+
+### 2A.2 Capital events
+
+| Event | Effect on borrowed capital |
+|---|---|
+| **Deposit** | Additional borrowing — increases the idle base from that day |
+| **Withdrawal** | **Repayment** — reduces the idle base from that day. Interest stops on the repaid amount |
+| **Buy** | Idle → deployed, same total |
+| **Sell** | Deployed → idle, same total; the lot's accrual freezes |
+| **Charges paid** | Leave the account — reduce the idle base |
+
+### 2A.3 Worked example
+
+Rate 10% p.a. → **₹0.000274 per rupee per day**.
+
+| Day | Event | Deployed | Idle | Total | Deployed int. | Idle int. | Day total |
+|---|---|---|---|---|---|---|---|
+| 1 | ₹50,000 deposited | 0 | 50,000 | 50,000 | ₹0.00 | ₹13.70 | ₹13.70 |
+| 2 | Buy ₹20,000 | 20,000 | 30,000 | 50,000 | ₹5.48 | ₹8.22 | ₹13.70 |
+| 3 | **Withdraw ₹20,000** | 20,000 | 10,000 | **30,000** | ₹5.48 | ₹2.74 | **₹8.22** |
+
+Day 3 matches the instruction exactly: the withdrawn ₹20,000 is repaid, and idle cost falls
+to the ₹10,000 that remains. Note the total cost drops from ₹13.70 to ₹8.22 — **repaying
+capital is the only way to reduce it**, which is precisely the behaviour the screen should
+make visible.
+
+### 2A.4 Where the daily cash balance comes from — a real problem
+
+Daily accrual needs a **cash balance for every calendar day**, but the engine only runs on
+demand and is switched off most of the time (D-013). Nobody is there to take a daily reading.
+
+| Option | Assessment |
+|---|---|
+| **(a)** Daily scheduled snapshot | Requires starting EC2 every day purely to read a balance — undermines the on-demand cost model, and still misses non-trading days unless run all seven |
+| **(b)** Reconstruct from a transaction ledger | Anchor on a known balance, then apply every deposit, withdrawal, buy, sell and charge to derive the balance for each day. No daily run needed; every day including weekends is covered |
+| **(c)** Snapshot on each run and interpolate | Cheap but wrong — a deposit between runs would be back-dated or missed entirely |
+
+**Recommended: (b), reconstructed, reconciled against broker-reported balances whenever the
+engine does run.** A drift between derived and broker-reported balance is then a *signal* —
+it means a cash movement happened that ATOM does not know about (an outside transfer,
+dividends, a charge levied directly), and it should be surfaced rather than silently
+absorbed.
+
+*This makes a complete cash ledger per trading account a hard requirement of the data model,
+not an optional convenience.*
+
 ---
 
 ## 3. The screen
@@ -102,16 +186,29 @@ Bought, days held **so far**, current value, accrued interest **to date**, and a
 "still accruing" marker. **No P&L is shown** — per instruction, unrealised gain is not
 reported here, only the interest that is definitely being incurred.
 
+### Section B2 — Idle capital
+Daily cash balance over the period, interest accrued on it, and the capital events (deposits
+and withdrawals) that moved it. Withdrawals are shown as **repayments**, with the interest
+saved from that day forward.
+
 ### Section C — Period summary
 
 | | |
 |---|---|
 | Gross realised P&L | |
 | Less: charges | |
-| Less: cost of capital on closed lots | |
+| Less: cost of capital on closed lots (**deployed, attributed**) | |
 | **= True realised profit** | |
-| Memo: interest accrued on open holdings | |
-| **= Net economic result for the period** | |
+| Less: idle capital drag (**unattributed**) | |
+| **= Net result after all capital cost** | |
+| Memo: interest accrued on open holdings, still running | |
+| Memo: total borrowed capital, period average | |
+| Memo: **capital efficiency** — % of days capital was deployed vs idle | |
+
+**Capital efficiency is the number this screen ultimately exists to produce.** The depth and
+skip rules (D/§6.2) deliberately produce days with no buys, and every such day is a day the
+borrowed capital earns nothing while still costing. This line quantifies that trade-off for
+the first time.
 
 ### Section D — Per trading account and consolidated
 Same structure per account (D-037), plus an investor-level roll-up.
@@ -132,20 +229,7 @@ Same structure per account (D-037), plus an investor-level roll-up.
 
 ## 5. Open questions — these change the numbers materially
 
-**Q-162 🔴 — Does idle cash accrue interest?**
-This is the most consequential question here. If ₹50,000 is borrowed and only ₹30,000 is
-deployed, the lender charges on ₹50,000 — but the model above only accrues on deployed lots.
-
-- **(a)** Accrue only on deployed lots (as specified above). Simple, attributable per trade,
-  but **understates the true cost** and flatters the strategy on days when capital sits idle.
-- **(b)** Accrue on the **full borrowed balance**, then allocate across lots. Economically
-  honest, and it correctly penalises idle capital — which matters, because your depth/skip
-  rules deliberately produce days with no buys at all.
-- **(c)** Both: per-lot for trade attribution, plus a separate "idle capital drag" line in
-  the period summary.
-
-*Recommendation: **(c)**. It preserves per-trade attribution while keeping the period summary
-economically truthful.*
+**~~Q-162~~ ✅ Resolved by D-046** — both buckets, per §2A.
 
 **Q-163 🟠 — Simple or compound?** Simple interest at `V × r / 365` per day, or compounding
 on unpaid accrued interest?
@@ -180,3 +264,28 @@ does not change what you owe.*
 borrowed money.
 *Recommendation: yes — accrue on the all-in cost, not the bare traded value. Small, but free
 to get right.*
+
+**Q-171 🔴 — Does retained profit accrue interest?**
+D-046 accrues on the **actual cash balance**, and a profitable sale returns more cash than the
+lot cost. So ₹50,000 borrowed that grows to ₹55,000 would accrue on ₹55,000 from that day,
+unless the ₹5,000 is withdrawn.
+
+- **(a)** Accrue on the actual balance (as specified). Treats retained profit as capital the
+  firm has left deployed, and is the literal reading of "funds held in the account".
+- **(b)** Accrue only on **principal** — cumulative deposits minus withdrawals — so profit is
+  yours and rides free.
+
+*This needs your decision: (a) charges you for your own profits, (b) requires tracking
+principal separately from balance. **(b)** is the more conventional treatment of a borrowing
+facility, but **(a)** is what you described.*
+
+**Q-172 🟠 — Are un-withdrawn sale proceeds idle capital on the sell day itself?**
+T+1 settlement means proceeds are not spendable for a day. Do they accrue as idle from the
+trade date or the settlement date?
+*Recommendation: **trade date**, matching how the lot's accrual stops, so the buckets stay
+continuous.*
+
+**Q-173 🟠 — How is the opening balance anchored?**
+Reconstruction (§2A.4) needs a starting point per trading account: a date and a known balance.
+*Recommendation: the operator enters an opening balance and date at onboarding, and the
+system reconciles forward from there.*
