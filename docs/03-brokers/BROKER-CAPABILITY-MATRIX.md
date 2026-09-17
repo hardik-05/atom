@@ -97,6 +97,10 @@ For each broker, fetch and snapshot into `docs/99-vendor-docs/<broker>/` (dated)
 5. Funds: available-margin field names and their exact meaning
 6. Market data: historical candles, quotes, instrument master
 7. Ledger and charges: what is exposed, in what form, at what latency (feeds Q-100)
+7a. **Funds credit events (D-050):** does the broker expose the actual date funds from a sale
+   land in the account, and is the credit attributable to a specific trade or only to a
+   ledger line? Where it is not attributable, FIFO matching is required. **No adapter may
+   assume T+1** — a Friday sale credits Monday at the earliest, and holidays extend it
 8. Errors: codes, rate-limit responses, retry guidance
 
 ---

@@ -201,14 +201,36 @@ Three things to read from this:
 - **Day 6:** withdrawing the ₹700 profit changes nothing — principal is untouched.
 - **Day 7:** repaying ₹20,000 is the only event that reduces the bill.
 
-### 2A.7 When deployed exceeds principal
+### 2A.7 Profit is never reinvested — this is a system invariant (D-049)
 
-Retained profits get reinvested, so lots at cost can exceed principal outstanding. Interest
-must still only be charged on principal.
+> "In this system profit will never be reinvested. Capital will be borrowed, capital will be
+> traded, profits will go out, and the capital will be repaid."
 
-*Recommendation (Q-174): attribute **pro-rata**. If lots total ₹55,000 against ₹50,000
-principal, each lot accrues on 50/55ths of its cost, and IDLE and SETTLEMENT are zero. The
-invariant holds and no lot is charged for capital that was never borrowed.*
+The capital lifecycle is closed and one-directional:
+
+```
+CAPITAL_IN  →  deployed in lots  →  sold  →  settled
+                                              ├─→ PROFIT_WITHDRAWAL   (profit leaves)
+                                              └─→ redeployed or CAPITAL_OUT   (principal only)
+```
+
+Therefore **deployed + settlement can never exceed principal**, and the pro-rata attribution
+once contemplated in Q-174 is unnecessary. It becomes an assertion instead:
+
+```
+assert deployed + settlement <= principal_outstanding    # for every account, every day
+```
+
+> ⚠️ **This invariant is a policy, not a mechanism, so it must be monitored.** The engine
+> places orders and the broker fills them from whatever cash is present — it cannot tell
+> principal-cash from profit-cash. If realised profit is left sitting in the account, the next
+> run will happily deploy it, silently breaking the assumption and understating the interest
+> base.
+>
+> **Required guard:** whenever `deployed + settlement > principal_outstanding`, raise an alert
+> naming the excess and prompting the operator either to record a `PROFIT_WITHDRAWAL` (if the
+> profit has left) or to reclassify it as `CAPITAL_IN` (if it is being treated as working
+> capital). The run is not blocked, but the discrepancy is never absorbed silently.
 
 ### 2A.8 Where the daily balances come from
 
@@ -333,17 +355,18 @@ to get right.*
 **~~Q-172~~ ✅ Resolved by D-048** — neither. Proceeds sit in a third SETTLEMENT bucket from
 trade date until the observed credit date.
 
-**Q-174 🟠 — Pro-rata attribution when deployed exceeds principal?** See §2A.7.
+**~~Q-174~~ ✅ Resolved by D-049** — profit is never reinvested, so deployed never exceeds
+principal. Enforced as a monitored assertion rather than handled by pro-rata attribution.
 
-**Q-175 🟠 — How is `funds_credited_date` obtained per broker?** It must come from the ledger
-or funds API. Brokers expose this differently, and some may not attribute a credit to a
-specific trade — in which case FIFO matching of credits to sales is needed. Feeds the round 2
-broker research.
+**~~Q-175~~ ✅ Confirmed** — `funds_credited_date` is obtained per broker as part of the
+broker research, and **never hard-coded to T+1**. A security sold on Friday may credit on
+Monday, which already exceeds T+1; holidays extend it further. Each broker adapter must expose
+the actual credit date and event, with FIFO matching of credits to sales where a broker does
+not attribute a credit to a specific trade. Tracked in the broker capability matrix.
 
-**Q-176 🟡 — Does a `PROFIT_WITHDRAWAL` exceeding retained profit get rejected?** Withdrawing
-₹10,000 of "profit" when only ₹6,000 has been earned is really a ₹4,000 repayment.
-*Recommendation: validate against realised profit to date and require the excess be
-reclassified as `CAPITAL_OUT`.*
+**~~Q-176~~ ✅ Resolved** — a `PROFIT_WITHDRAWAL` greater than realised profit to date is
+**rejected at entry** with a validation message. The operator must either reduce the amount or
+reclassify the excess as `CAPITAL_OUT`.
 
 **Q-173 🟠 — How is the opening balance anchored?**
 Reconstruction (§2A.4) needs a starting point per trading account: a date and a known balance.

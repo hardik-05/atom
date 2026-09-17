@@ -579,3 +579,24 @@ must be typed.*
 | Q-174 | Pro-rata attribution when deployed lots exceed principal |
 | Q-175 | How `funds_credited_date` is obtained per broker; FIFO matching if credits are not trade-attributed |
 | Q-176 | Reject a PROFIT_WITHDRAWAL exceeding realised profit to date? |
+
+**D-049 — Profit is never reinvested; the capital lifecycle is closed.** (Q-174 resolved.)
+Capital is borrowed, deployed, sold, the profit is withdrawn, and the principal is repaid.
+Consequently `deployed + settlement ≤ principal` always holds, and pro-rata attribution is
+unnecessary.
+
+> This is a **policy, not a mechanism** — the broker fills orders from whatever cash is
+> present and cannot distinguish principal from profit. Realised profit left in the account
+> will be deployed by the next run, silently breaking the assumption. **Required guard:** alert
+> whenever `deployed + settlement > principal`, prompting the operator to record a
+> `PROFIT_WITHDRAWAL` or reclassify the excess as `CAPITAL_IN`. Never absorbed silently.
+
+**D-050 — `funds_credited_date` is always observed, never assumed.** (Q-175 confirmed.)
+No T+1 constant anywhere. A Friday sale may credit on Monday — already beyond T+1 — and
+holidays extend it further. Each broker adapter exposes the actual credit event and date, with
+FIFO matching of credits to sales where the broker does not attribute credits to specific
+trades. Added to the round 2 broker research scope.
+
+**D-051 — Profit withdrawals are validated against realised profit.** (Q-176 resolved.)
+An entry exceeding realised profit to date is **rejected** with a validation message; the
+operator reduces it or reclassifies the excess as `CAPITAL_OUT`.
