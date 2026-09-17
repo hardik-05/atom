@@ -90,86 +90,145 @@ show.
 
 ---
 
-## 2A. Two accrual buckets: deployed and idle (D-046)
+## 2A. Accrual base is PRINCIPAL, split across three buckets (D-046, D-047, D-048)
 
-> "Go ahead with both. Per-lot attribution gives the actual trade-system picture, and the
-> idle capital drag can be gathered from per-day funds held. If ₹50,000 is present and
-> ₹20,000 goes into lots, the ₹20,000 accrues per the lots; the ₹30,000 in the account also
-> gains interest, but it is not associated to the trades — it is an idle cash cost. If the
-> next day the user withdraws ₹20,000, that ₹20,000 has been paid back, so the idle cash cost
-> comes to ₹10,000."
+### 2A.1 Profits ride free
 
-Every rupee in an account is borrowed and accrues from the day it arrives until the day it is
-repaid. It sits in exactly one of two buckets on any given day:
+> "The profits should not go into the interest. If a ₹50,000 trade yields ₹5,000 profit, your
+> cost of capital is still going to be on the ₹50,000."
+
+**The accrual base is borrowed principal outstanding, not the account balance.** Retained
+profit sits in the account earning its keep at zero cost.
 
 ```
-TOTAL BORROWED CAPITAL  =  DEPLOYED (open lots, at cost)  +  IDLE (cash balance)
-
-daily_interest_total  =  (deployed + idle) × r / 365
+principal_outstanding(D)  =  Σ CAPITAL_IN  −  Σ CAPITAL_OUT     (to date D)
+daily_interest(D)         =  principal_outstanding(D) × r / 365
 ```
 
-| Bucket | Base | Attribution |
+Borrow ₹50,000, grow it to ₹55,000, and you still owe interest on ₹50,000. *(Q-171 resolved:
+option (b).)*
+
+### 2A.2 Ledger entry types — profit withdrawal is a distinct kind
+
+> "There should be an entry screen where the user can add the amounts of profit being
+> withdrawn — 5,000, 8,000, 2,000. That amount is treated as profit, whereas all other
+> withdrawals are treated as capital inflow and outflow."
+
+Every cash movement is **typed by the operator**, and the type decides whether principal moves:
+
+| Type | Principal | Meaning |
 |---|---|---|
-| **Deployed** | Sum of open lots at cost | **Per lot**, per trade — flows into True Profit (§2) |
-| **Idle** | Account cash balance | **Unattributed** — reported as "idle capital drag" |
+| `CAPITAL_IN` | **↑** | New borrowing deployed into the account |
+| `CAPITAL_OUT` | **↓** | Repayment to the lender — interest stops on this amount |
+| `PROFIT_WITHDRAWAL` | **unchanged** | Taking earnings out. Principal, and therefore the interest bill, is untouched |
+| `TRADE_BUY` / `TRADE_SELL` | unchanged | Moves capital between buckets |
+| `CHARGES` | unchanged | Reduces cash; the borrowed amount still stands |
 
-### 2A.1 The invariant
+The distinction is **the operator's to make and cannot be inferred** — ₹5,000 leaving the
+account is either a repayment or a profit take, and only they know which. Hence the dedicated
+entry screen, where withdrawals are entered and classified. An unclassified withdrawal must
+**block** rather than default to either type (consistent with D-038).
 
-A buy moves capital from idle to deployed; a sell moves it back. **Total interest is
-continuous across the move** — no gap on the buy day, no double count. This is the primary
-test for the whole subsystem:
+### 2A.3 The three buckets
+
+On any day, borrowed principal sits in exactly one of three states:
 
 ```
-sum(per-lot accrual for day D) + idle accrual for day D
-    ==  total borrowed capital on day D × r / 365
+principal_outstanding  =  DEPLOYED  +  SETTLEMENT  +  IDLE
 ```
 
-Any discrepancy means capital has been lost or duplicated between the buckets.
+| Bucket | Base | Attribution | Reported as |
+|---|---|---|---|
+| **DEPLOYED** | Open lots, at cost | **Per lot, per trade** | Cost of capital in True Profit |
+| **SETTLEMENT** | Sold lots' **cost**, from sell date until funds are credited | **Unattributed** | **Settlement interest** |
+| **IDLE** | `principal − deployed − settlement` | Unattributed | Idle capital drag |
 
-### 2A.2 Capital events
+### 2A.4 Settlement interest (D-048)
 
-| Event | Effect on borrowed capital |
-|---|---|
-| **Deposit** | Additional borrowing — increases the idle base from that day |
-| **Withdrawal** | **Repayment** — reduces the idle base from that day. Interest stops on the repaid amount |
-| **Buy** | Idle → deployed, same total |
-| **Sell** | Deployed → idle, same total; the lot's accrual freezes |
-| **Charges paid** | Leave the account — reduce the idle base |
+> "I sold something on Monday but received the funds on Tuesday or Wednesday depending on the
+> security. That one day's interest is paid out of my pocket — it's not related to the trade.
+> Keep track of when the funds for a sale are credited, and the difference in days is the
+> settlement interest cost."
 
-### 2A.3 Worked example
+When a sell executes, the lot's own accrual **stops** — the trade is closed and its True
+Profit is final. But the money has not arrived, and the lender is still charging. That gap is
+its own cost, and it belongs to **neither** the trade nor idle cash.
 
-Rate 10% p.a. → **₹0.000274 per rupee per day**.
+```
+settlement_days     = funds_credited_date − sell_trade_date
+settlement_interest = lot_cost × r / 365 × settlement_days
+```
 
-| Day | Event | Deployed | Idle | Total | Deployed int. | Idle int. | Day total |
-|---|---|---|---|---|---|---|---|
-| 1 | ₹50,000 deposited | 0 | 50,000 | 50,000 | ₹0.00 | ₹13.70 | ₹13.70 |
-| 2 | Buy ₹20,000 | 20,000 | 30,000 | 50,000 | ₹5.48 | ₹8.22 | ₹13.70 |
-| 3 | **Withdraw ₹20,000** | 20,000 | 10,000 | **30,000** | ₹5.48 | ₹2.74 | **₹8.22** |
+**Rules:**
+1. The base is the **lot's cost**, not the sale proceeds — the profit portion was never
+   borrowed and must not accrue (§2A.1).
+2. `funds_credited_date` is **observed from the broker ledger**, never assumed from a
+   settlement-cycle constant. The instruction is explicit that it varies by security, and a
+   holiday or exchange issue can extend it. Assuming T+1 would silently understate the cost.
+3. Until the credit is observed, the amount stays in SETTLEMENT and keeps accruing — so an
+   unusually long settlement shows up as a rising cost rather than disappearing.
+4. Settlement interest is reported as its **own line**, never folded into a trade's True
+   Profit.
 
-Day 3 matches the instruction exactly: the withdrawn ₹20,000 is repaid, and idle cost falls
-to the ₹10,000 that remains. Note the total cost drops from ₹13.70 to ₹8.22 — **repaying
-capital is the only way to reduce it**, which is precisely the behaviour the screen should
-make visible.
+### 2A.5 The invariant
 
-### 2A.4 Where the daily cash balance comes from — a real problem
+```
+Σ per-lot accrual  +  settlement accrual  +  idle accrual
+        ==  principal_outstanding(D) × r / 365
+```
 
-Daily accrual needs a **cash balance for every calendar day**, but the engine only runs on
-demand and is switched off most of the time (D-013). Nobody is there to take a daily reading.
+This is the primary test for the subsystem. A buy moves capital IDLE→DEPLOYED, a sell moves
+it DEPLOYED→SETTLEMENT, and a credit moves it SETTLEMENT→IDLE — **the total never changes on
+any of those days.** Only `CAPITAL_IN` and `CAPITAL_OUT` move it.
+
+### 2A.6 Worked example
+
+Rate 10% p.a. Sell on day 3 of a lot that cost ₹20,000, for ₹20,700; credited day 5.
+
+| Day | Event | Deployed | Settlement | Idle | Principal | Deployed | Settl. | Idle | **Total** |
+|---|---|---|---|---|---|---|---|---|---|
+| 1 | ₹50,000 `CAPITAL_IN` | 0 | 0 | 50,000 | 50,000 | ₹0.00 | ₹0.00 | ₹13.70 | ₹13.70 |
+| 2 | Buy ₹20,000 | 20,000 | 0 | 30,000 | 50,000 | ₹5.48 | ₹0.00 | ₹8.22 | ₹13.70 |
+| 3 | **Sell** for ₹20,700 | 0 | 20,000 | 30,000 | 50,000 | ₹0.00 | **₹5.48** | ₹8.22 | ₹13.70 |
+| 4 | Awaiting credit | 0 | 20,000 | 30,000 | 50,000 | ₹0.00 | **₹5.48** | ₹8.22 | ₹13.70 |
+| 5 | **Funds credited** | 0 | 0 | 50,000 | 50,000 | ₹0.00 | ₹0.00 | ₹13.70 | ₹13.70 |
+| 6 | ₹700 `PROFIT_WITHDRAWAL` | 0 | 0 | 50,000 | **50,000** | ₹0.00 | ₹0.00 | ₹13.70 | ₹13.70 |
+| 7 | ₹20,000 `CAPITAL_OUT` | 0 | 0 | 30,000 | **30,000** | ₹0.00 | ₹0.00 | ₹8.22 | **₹8.22** |
+
+Three things to read from this:
+- **Days 3–4:** the trade is closed and its True Profit is fixed, yet ₹10.96 of settlement
+  interest is still being incurred. Invisible without this bucket.
+- **Day 6:** withdrawing the ₹700 profit changes nothing — principal is untouched.
+- **Day 7:** repaying ₹20,000 is the only event that reduces the bill.
+
+### 2A.7 When deployed exceeds principal
+
+Retained profits get reinvested, so lots at cost can exceed principal outstanding. Interest
+must still only be charged on principal.
+
+*Recommendation (Q-174): attribute **pro-rata**. If lots total ₹55,000 against ₹50,000
+principal, each lot accrues on 50/55ths of its cost, and IDLE and SETTLEMENT are zero. The
+invariant holds and no lot is charged for capital that was never borrowed.*
+
+### 2A.8 Where the daily balances come from
+
+Daily accrual needs, for every calendar day, the principal outstanding and the split across
+buckets — but the engine runs on demand and is off most days (D-013). Nobody takes a daily
+reading.
 
 | Option | Assessment |
 |---|---|
-| **(a)** Daily scheduled snapshot | Requires starting EC2 every day purely to read a balance — undermines the on-demand cost model, and still misses non-trading days unless run all seven |
-| **(b)** Reconstruct from a transaction ledger | Anchor on a known balance, then apply every deposit, withdrawal, buy, sell and charge to derive the balance for each day. No daily run needed; every day including weekends is covered |
-| **(c)** Snapshot on each run and interpolate | Cheap but wrong — a deposit between runs would be back-dated or missed entirely |
+| **(a)** Daily scheduled snapshot | Starting EC2 daily just to read balances undermines the on-demand cost model |
+| **(b)** Reconstruct from the ledger | Every bucket is derivable from typed ledger entries plus lot open/close/credit dates. No daily run; all seven days covered |
+| **(c)** Snapshot per run and interpolate | Wrong — a deposit between runs is back-dated or lost |
 
-**Recommended: (b), reconstructed, reconciled against broker-reported balances whenever the
-engine does run.** A drift between derived and broker-reported balance is then a *signal* —
-it means a cash movement happened that ATOM does not know about (an outside transfer,
-dividends, a charge levied directly), and it should be surfaced rather than silently
-absorbed.
+**Recommended: (b)**, reconciled against broker-reported balances whenever the engine runs.
+Drift between derived and reported balance is a **signal** — cash moved without ATOM knowing
+(an outside transfer, a dividend, a directly-levied charge) — and is surfaced for the operator
+to classify, not silently absorbed.
 
-*This makes a complete cash ledger per trading account a hard requirement of the data model,
-not an optional convenience.*
+*This makes a complete typed cash ledger per trading account a hard requirement of the data
+model, and makes `funds_credited_date` per sale a tracked field.*
 
 ---
 
@@ -186,6 +245,10 @@ Bought, days held **so far**, current value, accrued interest **to date**, and a
 "still accruing" marker. **No P&L is shown** — per instruction, unrealised gain is not
 reported here, only the interest that is definitely being incurred.
 
+### Section B1 — Settlement interest
+Each sale in the period with its sell date, observed credit date, days in settlement, lot
+cost and interest incurred. Sales still awaiting credit are flagged and still accruing.
+
 ### Section B2 — Idle capital
 Daily cash balance over the period, interest accrued on it, and the capital events (deposits
 and withdrawals) that moved it. Withdrawals are shown as **repayments**, with the interest
@@ -199,7 +262,8 @@ saved from that day forward.
 | Less: charges | |
 | Less: cost of capital on closed lots (**deployed, attributed**) | |
 | **= True realised profit** | |
-| Less: idle capital drag (**unattributed**) | |
+| Less: **settlement interest** (unattributed) | |
+| Less: idle capital drag (unattributed) | |
 | **= Net result after all capital cost** | |
 | Memo: interest accrued on open holdings, still running | |
 | Memo: total borrowed capital, period average | |
@@ -265,25 +329,21 @@ borrowed money.
 *Recommendation: yes — accrue on the all-in cost, not the bare traded value. Small, but free
 to get right.*
 
-**Q-171 🔴 — Does retained profit accrue interest?**
-D-046 accrues on the **actual cash balance**, and a profitable sale returns more cash than the
-lot cost. So ₹50,000 borrowed that grows to ₹55,000 would accrue on ₹55,000 from that day,
-unless the ₹5,000 is withdrawn.
+**~~Q-171~~ ✅ Resolved by D-047** — principal only; retained profit does not accrue.
+**~~Q-172~~ ✅ Resolved by D-048** — neither. Proceeds sit in a third SETTLEMENT bucket from
+trade date until the observed credit date.
 
-- **(a)** Accrue on the actual balance (as specified). Treats retained profit as capital the
-  firm has left deployed, and is the literal reading of "funds held in the account".
-- **(b)** Accrue only on **principal** — cumulative deposits minus withdrawals — so profit is
-  yours and rides free.
+**Q-174 🟠 — Pro-rata attribution when deployed exceeds principal?** See §2A.7.
 
-*This needs your decision: (a) charges you for your own profits, (b) requires tracking
-principal separately from balance. **(b)** is the more conventional treatment of a borrowing
-facility, but **(a)** is what you described.*
+**Q-175 🟠 — How is `funds_credited_date` obtained per broker?** It must come from the ledger
+or funds API. Brokers expose this differently, and some may not attribute a credit to a
+specific trade — in which case FIFO matching of credits to sales is needed. Feeds the round 2
+broker research.
 
-**Q-172 🟠 — Are un-withdrawn sale proceeds idle capital on the sell day itself?**
-T+1 settlement means proceeds are not spendable for a day. Do they accrue as idle from the
-trade date or the settlement date?
-*Recommendation: **trade date**, matching how the lot's accrual stops, so the buckets stay
-continuous.*
+**Q-176 🟡 — Does a `PROFIT_WITHDRAWAL` exceeding retained profit get rejected?** Withdrawing
+₹10,000 of "profit" when only ₹6,000 has been earned is really a ₹4,000 repayment.
+*Recommendation: validate against realised profit to date and require the excess be
+reclassified as `CAPITAL_OUT`.*
 
 **Q-173 🟠 — How is the opening balance anchored?**
 Reconstruction (§2A.4) needs a starting point per trading account: a date and a known balance.

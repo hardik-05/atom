@@ -547,3 +547,35 @@ than silently absorbed.*
 | Q-171 | 🔴 Does retained profit accrue interest (actual balance) or only principal? |
 | Q-172 | Do sale proceeds accrue as idle from trade date or settlement date? |
 | Q-173 | How is each account's opening balance anchored for reconstruction? |
+
+**D-047 — The accrual base is borrowed principal, not the account balance.** (Q-171 resolved.)
+`principal = Σ CAPITAL_IN − Σ CAPITAL_OUT`. Retained profit does **not** accrue interest —
+₹50,000 grown to ₹55,000 still costs interest on ₹50,000.
+
+Cash movements are **typed by the operator** via a dedicated entry screen:
+`PROFIT_WITHDRAWAL` leaves principal unchanged, while `CAPITAL_IN`/`CAPITAL_OUT` move it.
+The distinction cannot be inferred — money leaving the account is either a repayment or a
+profit take and only the operator knows which — so an unclassified withdrawal **blocks**
+rather than defaulting (consistent with D-038).
+
+**D-048 — Settlement interest is a third bucket.** A sale closes its lot's accrual and fixes
+its True Profit, but the funds are not yet credited and the lender is still charging. That
+gap accrues separately as **settlement interest**, attributed to neither the trade nor idle
+cash:
+- Base is the **lot's cost**, not the sale proceeds — the profit portion was never borrowed.
+- `funds_credited_date` is **observed from the broker ledger**, never assumed from a
+  settlement-cycle constant; the instruction is explicit that it varies by security, and
+  assuming T+1 would understate the cost.
+- Amounts stay in SETTLEMENT and keep accruing until the credit is observed, so an unusually
+  long settlement appears as a rising cost rather than vanishing.
+
+Principal therefore splits three ways — `DEPLOYED + SETTLEMENT + IDLE` — with the invariant
+`Σ per-lot + settlement + idle == principal × r / 365`. Buys, sells and credits move capital
+between buckets without changing the total; only `CAPITAL_IN`/`CAPITAL_OUT` change it.
+
+*Consequences: `funds_credited_date` becomes a tracked field per sale, and the cash ledger
+must be typed.*
+
+| Q-174 | Pro-rata attribution when deployed lots exceed principal |
+| Q-175 | How `funds_credited_date` is obtained per broker; FIFO matching if credits are not trade-attributed |
+| Q-176 | Reject a PROFIT_WITHDRAWAL exceeding realised profit to date? |
