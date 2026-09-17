@@ -424,3 +424,47 @@ into the run log, and validated at write time. Full registry of every configurab
 | Q-153 | Confirm config resolution order |
 | Q-154 | Is one `category_priority` per trading account enough? |
 | Q-155 | May a VIEWER edit config, or ADMIN only? |
+
+---
+
+## Round 5 — 2026-09-17
+
+**D-038 — No defaults anywhere; config completeness is a pre-flight gate.** Supersedes the
+six-level resolution order in D-037. There is no inheritance and no fallback. Every required
+key must be explicitly set for every (trading_account, category). Before any run — live or
+dry — the engine enumerates the required set, and **blocks the run** if anything is absent,
+naming exactly what is missing and where. The same check drives a live validity indicator on
+the Execute Engine screen. Suggested values survive only as **UI pre-fills the operator must
+actively accept**; the engine never applies them.
+
+**D-039 — NULL is an explicit operator choice, distinct from absent.** NULL means "do not
+trade this" and skips the category, logged as a deliberate choice. Absent means "unknown" and
+blocks the run. Storage must distinguish the two: the config row's **existence** means
+configured, and its **value** may be NULL.
+
+**D-040 — Single admin login. No other roles.** The application is admin-only. The people
+whose accounts are traded have **no access**. One login to the website, one role, which can
+change configs, run the process, update tokens and everything else.
+*Supersedes* the earlier "two to three users" statement in the requirements capture (§11) and
+closes Q-072 and Q-155 — there is no VIEWER role to design.
+
+**D-041 — End-to-end dry-run infrastructure is a first-class subsystem.** Per trading account,
+`execution_mode ∈ {LIVE, DRY}`. Real market data, real configs, identical strategy code;
+the only difference is that orders go to a paper fill engine instead of a broker. Paper money
+is added explicitly and behaves as real cash, including blocking buys when short. Portfolio
+snapshots at start and end of day — no intraday polling. A dedicated Dry Run screen carries
+the paper portfolio, equity curve and performance. Every dry-run artefact is marked `DRY`.
+Full specification in
+[`../01-architecture/EXECUTION-MODES-AND-DRY-RUN.md`](../01-architecture/EXECUTION-MODES-AND-DRY-RUN.md).
+
+*This is the architectural justification for the modularity mandate, and it reorders the
+build plan: the paper gateway can be implemented first, letting the whole strategy engine be
+validated against live market data before any broker order adapter, static IP or SEBI IP
+registration exists.*
+
+| Q-156 | NULL semantics per key |
+| Q-157 | Adding a new config key — block all accounts or allow a grace mode? |
+| Q-158 | Confirm the paper fill model |
+| Q-159 | Compare dry-run and live P&L side by side? |
+| Q-160 | Paper portfolio retention |
+| Q-161 | Can a dry run start without the EC2 engine? |

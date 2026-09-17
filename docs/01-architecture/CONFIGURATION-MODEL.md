@@ -2,8 +2,9 @@
 
 **Status:** 🟢 Specified
 **Implements:** D-037 · supersedes the scope table proposed in Q-060
-**Governing rule:** *No operational number is ever hard-coded. Every one is a stored,
-editable, versioned config value.*
+**Governing rule:** *No operational number is ever hard-coded, and none is ever defaulted.
+Every one is a stored, editable, versioned config value that the operator must supply
+explicitly before a run may start.*
 
 ---
 
@@ -45,24 +46,82 @@ two accounts unless the operator sets the same value in both.
 
 ---
 
-## 2. Resolution order
+## 2. No defaults, ever — completeness is a pre-flight gate
 
-A value is resolved most-specific-first, so an operator can set one default and override only
-where it differs:
+> "There should be **no defaults**. While running we need to check that all configs are in
+> place. If an investor holding an account with a broker has configs missing for equity, or
+> priority missing, they should not be able to run the process. Do not assume or fall back to
+> any defaults — ask the user to push in all the configs before running."
+
+**There is no resolution hierarchy and no inheritance.** Every required key must be
+explicitly set at its exact scope, by the operator, before a run may start. A missing value
+is never filled in from a broader scope, a system default, or a literal in code.
+
+### 2.1 The pre-flight check
+
+Before any run — live or dry — the engine enumerates the full required config set and
+verifies every entry exists:
 
 ```
-1. (trading_account, category)   ← most specific, always wins
-2. (trading_account, *)           ← account-wide default
-3. (investor, category)           ← investor's house style across their brokers
-4. (investor, *)
-5. (*, category)                  ← system default per category
-6. (*, *)                         ← system default
+required = { (trading_account, category, key)
+             for trading_account in active_accounts
+             for category        in [EQUITY, COMMODITY, GLOBAL]
+             for key             in CATEGORY_SCOPED_KEYS }
+         ∪ { (trading_account, key)
+             for trading_account in active_accounts
+             for key             in ACCOUNT_SCOPED_KEYS }
+
+missing = required − configured
+if missing:  BLOCK THE RUN
 ```
 
-Every resolution records **which level supplied the value**, and the run log prints it, so
-"why was this 4% and not 3.5%?" is answerable without guesswork.
+On failure the run **does not start**. The console shows exactly what is absent, grouped so
+the gap is obvious:
 
----
+```
+⛔ Cannot start run — 3 configs missing
+
+  Person A · Dhan · COMMODITY
+      • profit_target_pct        not set
+      • depth_levels             not set
+
+  Person A · Dhan
+      • category_priority        not set
+
+  Set these on the Execute Engine screen, then run again.
+```
+
+The same check runs as a **live validity indicator** on the Execute Engine screen, so the gap
+is visible before the operator reaches for the Execute button rather than at the moment they
+press it.
+
+### 2.2 NULL is an explicit choice, not an absence
+
+An operator may deliberately set a config to **NULL**. That is a recorded decision meaning
+**"do not trade this"**, and it is categorically different from a value that was never
+supplied:
+
+| State | Meaning | Run behaviour |
+|---|---|---|
+| **Value present** | Configured | Trades per that value |
+| **NULL** (explicitly set) | Operator has switched this off | **Skips** that category/account; logged as an explicit operator choice |
+| **Absent** (never set) | Unknown | **Blocks the run** |
+
+NULL and absent must therefore be distinguishable in storage — a nullable column with a
+separate `is_configured` marker, or a config row that exists carrying a NULL value versus no
+row at all. The second is preferred: **presence of the row means configured; its value may
+be NULL.**
+
+### 2.3 Consequences
+
+- Onboarding a new investor or broker is **not complete** until every config row exists. The
+  onboarding flow ends with this same check.
+- Adding a new config key to the registry **invalidates every existing account** until the
+  operator fills it in. That is intentional: a new knob must be a deliberate choice per
+  account, not silently defaulted across the estate.
+- The "Default" column in the registry below is therefore a **suggested starting value shown
+  in the UI when the operator first creates the row** — a pre-filled form field they must
+  actively accept. It is never applied by the engine.
 
 ## 3. Config registry
 
@@ -70,7 +129,7 @@ Every operational number in ATOM. Nothing outside this table may be a literal in
 
 ### 3.1 Strategy — key `(trading_account, category)`
 
-| Key | Type | Default | Meaning |
+| Key | Type | Suggested starting value (UI pre-fill only) | Meaning |
 |---|---|---|---|
 | `profit_target_pct` | NUMERIC(9,4) | 3.5000 | Sell limit = buy price × (1 + this) |
 | `depth_levels` | INT | 3 | How far down the ranked list to look when candidates are already held |
@@ -85,7 +144,7 @@ Every operational number in ATOM. Nothing outside this table may be a literal in
 
 ### 3.2 Strategy — key `(trading_account)`
 
-| Key | Type | Default | Meaning |
+| Key | Type | Suggested starting value (UI pre-fill only) | Meaning |
 |---|---|---|---|
 | `category_priority` | ARRAY | `[EQUITY, COMMODITY, GLOBAL]` | Order categories are funded in when cash is short |
 | `daily_spend_cap_inr` | NUMERIC(18,4) | sum of amounts × 2 | Hard stop; breach aborts the run |
@@ -94,7 +153,7 @@ Every operational number in ATOM. Nothing outside this table may be a literal in
 
 ### 3.3 Harvesting — key `(trading_account)`
 
-| Key | Type | Default | Meaning |
+| Key | Type | Suggested starting value (UI pre-fill only) | Meaning |
 |---|---|---|---|
 | `stcg_rate_pct` | NUMERIC(9,4) | 20.0000 | Short-term capital gains rate |
 | `correlation_window_days` | INT | 250 | Window for proxy correlation |
@@ -103,7 +162,7 @@ Every operational number in ATOM. Nothing outside this table may be a literal in
 
 ### 3.4 Operational — key `(global)`
 
-| Key | Type | Default | Meaning |
+| Key | Type | Suggested starting value (UI pre-fill only) | Meaning |
 |---|---|---|---|
 | `market_open_gate_time` | TIME | 09:30 | Earliest a run may execute |
 | `order_poll_interval_sec` | INT | 60 | Fill-polling cadence |
@@ -157,6 +216,7 @@ override. Changing a value takes effect from the next run.
 
 | ID | Item |
 |---|---|
-| Q-153 | Confirm the resolution order in §2 — particularly whether an investor-level default should outrank a system-level category default |
-| Q-154 | Should `category_priority` also be per-category-set, or is one ordering per trading account enough? |
-| Q-155 | Who may edit config — ADMIN only, or VIEWER too (Q-072)? |
+| ~~Q-153~~ | ✅ Withdrawn — there is no resolution order; every key is explicitly set (D-038) |
+| ~~Q-155~~ | ✅ Resolved by D-040 — single admin login, no other roles |
+| Q-156 | Confirm NULL semantics per key: does NULL on `trade_amount_inr` mean "never buy this category" while sells continue, i.e. identical to `category_enabled = false`? |
+| Q-157 | When a new config key is added to the registry, block every account until filled, or allow a grace mode? |
