@@ -402,7 +402,7 @@ premium-to-NAV rather than price deviation.
 Impact on the other buckets is negligible and correctly calibrated: commodity never binds
 (0 of 44 above NAV, median −0.64%), equity blocks 4 of 91 liquid candidates at 2%
 (median +0.74%).
-| Q-149 | **GLOBAL category — choose option A–E**; the NAV check currently disables it entirely |
+| ~~Q-149~~ | ✅ Resolved by D-052 — no special-casing; the tolerance is config, and 0% is legitimate |
 | Q-150 | Behaviour when NAV is unavailable (18 of 350 lack i-NAV, 3 lack NAV/LTP) |
 | Q-151 | Use NAV (EOD) or i-NAV (intraday) for the live check |
 | Q-152 | Confirm `Hybrid` is excluded |
@@ -600,3 +600,20 @@ trades. Added to the round 2 broker research scope.
 **D-051 — Profit withdrawals are validated against realised profit.** (Q-176 resolved.)
 An entry exceeding realised profit to date is **rejected** with a validation message; the
 operator reduces it or reclassifies the excess as `CAPITAL_OUT`.
+
+**D-052 — The NAV check is a pre-placement gate, and GLOBAL is not special-cased.**
+(Q-149 closed.)
+
+*Gate position:* ranking and selection happen first and are **never influenced by NAV**. The
+check then applies to the already-chosen order: pass → send to the exchange, fail → **do not
+push it**, log the reason, move to the next candidate in the existing rank order. A failing
+candidate is skipped, not substituted by a better-priced one.
+
+*No special handling for GLOBAL:* it uses the same `nav_premium_tolerance_pct` config at the
+same (trading account × category) grain, with no default. The operator sets the number and the
+engine enforces it exactly — 15% admits some global ETFs, 0% admits none, and **0% is a
+legitimate configuration meaning "only buy at or below NAV"**, not a disabled category. An
+empty candidate list is a valid outcome, logged as such rather than treated as an error.
+
+The structural-premium analysis (all five liquid global ETFs at +18.9% to +183.1%) is retained
+in the spec as context for choosing the number, not as behaviour baked into code.

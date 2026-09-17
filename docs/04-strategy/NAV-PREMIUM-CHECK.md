@@ -6,6 +6,29 @@
 
 ---
 
+## 0. Where this sits in the run (D-052)
+
+The NAV check is **not** part of ranking. It is a gate applied to the already-chosen order,
+immediately before it would be sent to the exchange:
+
+```
+1. UNIVERSE      volume filter → tradable list per category
+2. RANK          deviation from mean → ordered candidate list
+3. SELECT        depth/skip rules → the instrument we intend to buy
+4. ── NAV GATE ──  does this order qualify to go to the exchange?
+                    PASS → place the order
+                    FAIL → do NOT push to the exchange; log the reason; next candidate
+5. PLACE         send to broker
+```
+
+> "First you come up with a list of what you want to buy and the order of buying. Then this is
+> a check on that — whatever we are placing as an order, should it even go to the exchange or
+> not? If it meets the criteria it goes to the exchange; if it does not, we do not push it."
+
+Ranking is never altered by NAV. A failing candidate is **not re-ranked or substituted by a
+better-priced one** — it is skipped, and evaluation moves to the next candidate in the
+existing rank order, exactly as the holdings-skip rule behaves.
+
 ## 1. What this feature does
 
 An ETF has two prices: what it **trades at** (LTP) and what its **underlying assets are
@@ -124,19 +147,39 @@ while its premium collapses, and the premium is the larger number by far. A 183%
 normalising is a **−65% move** that no price-history model would anticipate. This is the
 single largest tail risk in the current design.
 
-### Options (operator decision required — Q-149)
+### Resolution — GLOBAL is not special-cased (D-052, Q-149 closed)
 
-| # | Option | Consequence |
-|---|---|---|
-| **A** | Keep tolerance at 2%, accept global is dormant | Safest. Global buys nothing until premiums normalise — which may be years, or never. Two live categories instead of three. |
-| **B** | Set global tolerance to ~20% | Admits MON100 and MAHKTECH only. Still paying a ~19% premium, with the collapse risk intact. |
-| **C** | Disable the NAV check for global only | Restores the category as originally specified, and accepts the tail risk explicitly rather than by omission. |
-| **D** | Rank global on **premium-to-NAV** instead of price deviation | Buy the *least* over-priced global ETF rather than the most price-oversold. A different strategy for this bucket, but arguably the correct one given a frozen unit supply. |
-| **E** | Drop global from the strategy | Cleanest. Six instruments, five liquid, all structurally mispriced. |
+> "Global should again not be hard-coded to a percent — it should be a number. If a user adds
+> 15%, then in the universe we can make a buy. If the user makes it 0%, then for sure none of
+> the ETFs will qualify, which is expected behaviour. Make sure the percentage given is
+> adhered to and trades are not placed if it is not met."
 
-**Recommendation: A now, D later.** Ship with the 2% tolerance so nothing is bought at a
-183% premium by accident, and treat global as a separate design question rather than forcing
-it through machinery built for arbitraged instruments.
+**No special handling, no separate strategy, no different ranking.** GLOBAL uses the same
+`nav_premium_tolerance_pct` config as every other category, at the same
+(trading account × category) grain, with **no default** (D-038). The operator sets the number
+and the engine enforces it exactly.
+
+The figures in the table above are therefore **information for setting that number**, not a
+recommendation baked into the code:
+
+| Tolerance set | Global ETFs that qualify (17-Sep data) |
+|---|---|
+| **0%** | None — price must be at or below NAV. A legitimate, expected setting |
+| 2% | None |
+| 15% | None (lowest liquid premium is MON100 at 18.90%) |
+| 20% | MON100 |
+| 25% | MON100, MAHKTECH |
+| 40% | + MAFANG |
+| 60% | + MASPTOP50 |
+| 200% | All five |
+
+**A tolerance of 0% is a meaningful configuration, not a disabled category** — it means "only
+buy at or below NAV", which the rule in §1 already handles, since price at or below NAV always
+passes. An empty candidate list for a category is a valid outcome and is logged as such, not
+treated as an error.
+
+*The structural-premium analysis above is retained because it is the context for choosing the
+number — but the choice is the operator's, per account, changeable before any run.*
 
 ---
 
