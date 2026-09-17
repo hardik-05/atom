@@ -52,12 +52,43 @@ reporting code needs an `if dry_run:` branch, the boundary has been drawn in the
 | Order fills | Broker polling | Fill model, §4 |
 | Charges | Broker + computed (D-024) | Computed only |
 | Logging | Full (D-035) | **Full — identical, tagged `DRY`** |
-| Static IP egress | Required | **Not required** — no broker order calls |
+| Static IP egress | Required | **Depends on the price source — see §3a** |
 
-*The last row is a real operational benefit: a dry run needs no broker order credentials and
-no whitelisted IP, so it can be exercised long before the SEBI IP registration is complete.*
+> **Correction.** An earlier note here claimed a dry run needs no static IP. That is only true
+> if prices come from a non-broker source. Broker market-data APIs require a validated token
+> and are subject to the broker's own IP policy, so a dry run on broker data needs the same
+> IP plumbing as live trading. See §3a.
 
 ---
+
+## 3a. Price source is selectable (D-043)
+
+> "For a dry run, give an option for which source needs to be used for prices. We can tap
+> into Yahoo Finance or any other free service, and hence the dry run won't require any IP.
+> But since Yahoo Finance does not provide prices for all the ETFs, it's better to go with the
+> broker. Do give both options."
+
+`price_source ∈ { BROKER, FREE }`, selectable per run:
+
+| | `BROKER` | `FREE` (e.g. Yahoo Finance) |
+|---|---|---|
+| Token needed | **Yes** — validated before the run | No |
+| Static IP needed | **Yes**, per broker policy | **No** |
+| ETF coverage | **Complete** — every NSE ETF | **Partial** — many Indian ETFs missing or stale |
+| Data quality | Exchange-grade | Best-effort, unadjusted, gaps |
+| Use for | Meaningful dry runs, live trading | End-to-end plumbing tests with zero credentials |
+
+**Coverage is the deciding factor.** A free source that silently omits ETFs does not just
+lose rows — it **changes the ranking**, because a missing ETF cannot be ranked, and the engine
+would buy the wrong instrument while appearing to work perfectly.
+
+Therefore:
+1. `FREE` runs must **report coverage explicitly** — how many universe members got a price,
+   and which did not — and mark every resulting artefact as coverage-limited.
+2. A `FREE` run is a **plumbing test**, not a strategy validation. The UI must say so.
+3. `BROKER` is the default selection for any run whose results will inform a real decision.
+
+Q-170 covers which free provider, and whether an unmapped-symbol failure should block the run.
 
 ## 3. Mode is per trading account
 
@@ -86,7 +117,7 @@ results flatter a strategy that then disappoints.
 | **Sell (limit at target)** | Fills at the limit price if the day's `HIGH ≥ limit`, else remains pending |
 | **GTT sell** | Rests indefinitely; evaluated against each day's HIGH until triggered (mirrors D-003/D-029) |
 | **Unfilled buy** | Expires at end of day, exactly as a real DAY order (D-029) |
-| **Charges** | Computed from the broker's fee schedule (D-024) and deducted from paper cash |
+| **Charges** | Computed from the broker's fee schedule (D-024) and deducted from paper cash — **brokerage, STT, exchange and SEBI fees, stamp duty, GST and DP charges on sells** |
 
 **Deliberately conservative choices** — all open for discussion (Q-158):
 
@@ -96,6 +127,12 @@ results flatter a strategy that then disappoints.
 3. **No partial fills** in v1; an order fills fully or not at all.
 4. **No market-impact model.** Justified by the ₹10,000 order size against the 1-lakh-unit
    liquidity floor, but it is an assumption worth stating.
+
+**Charges are mandatory in dry run, not optional** (D-044). The stated requirement: dry-run
+results must include brokerage, DP charges, STT, GST and the rest, so that the output is
+comparable to reality rather than a naive sell-price-minus-buy-price figure. A dry run also
+accrues **cost of capital** (D-045), so paper returns are judged on exactly the same basis as
+live ones.
 
 ---
 

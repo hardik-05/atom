@@ -468,3 +468,55 @@ registration exists.*
 | Q-159 | Compare dry-run and live P&L side by side? |
 | Q-160 | Paper portfolio retention |
 | Q-161 | Can a dry run start without the EC2 engine? |
+
+---
+
+## Round 6 — 2026-09-17
+
+**D-042 — Do not pre-check funds locally; let the broker reject the order.**
+*Supersedes the local funds check in the requirements capture §6.3.*
+The engine places every order the rules call for, in the fixed category priority order. If
+funds are short, **the broker rejects it and the broker's own reason is logged verbatim** —
+authoritative, and better than inferring it from a funds API that may be stale or
+differently defined.
+- **Category priority is fixed** per trading account (Q-154 closed).
+- Orders are never downsized. A failure is a failure.
+- **The UI offers a manual retry** per failed order, so the operator can add money to the
+  broker account after a run and retry without re-running the whole engine.
+- Rejection reasons are surfaced on Daily Status and in the run log (D-035).
+
+**D-043 — Dry-run price source is selectable: `BROKER` or `FREE`.**
+Broker data requires a validated token and carries the broker's IP policy; a free source
+(e.g. Yahoo Finance) needs neither but has **incomplete ETF coverage**. Both are offered.
+Because missing prices silently change the ranking, a `FREE` run must report coverage
+explicitly and is classed as a plumbing test rather than a strategy validation.
+*This corrects an earlier claim that dry runs never need a static IP.*
+
+**D-044 — Dry run includes full Indian charges.** Brokerage, DP charges, STT, GST, exchange
+and SEBI fees and stamp duty are computed and deducted from paper cash, so dry-run output is
+comparable to live rather than a naive price difference.
+
+**D-045 — NEW SUBSYSTEM: Cost of capital.** Funds deployed are **borrowed**, at a per-annum
+rate, so true profit is `Realised P&L − Charges − Cost of capital for days held`. Interest
+accrues **per lot, daily, on all seven calendar days**, from buy date to sell date for closed
+lots and to today for open ones. Averaging raises the accrual base from the averaging date,
+which falls out of per-lot accrual automatically. Partial sells close lots FIFO, freezing
+each closed lot's interest. A dedicated screen shows, for a chosen period: closed trades with
+P&L and true profit, open holdings with accrued interest **but no P&L**, and a period summary.
+**Taxation is explicitly excluded from this calculation**, per instruction.
+Full specification in [`../08-reporting/COST-OF-CAPITAL.md`](../08-reporting/COST-OF-CAPITAL.md).
+
+*This makes lot-level position tracking mandatory — position-level tracking cannot represent
+the averaging case correctly.*
+
+| ~~Q-054~~ | ✅ Resolved by D-042 — never downsize; place the order and let it fail |
+| ~~Q-154~~ | ✅ Resolved by D-042 — one fixed ordering per trading account |
+| Q-162 | 🔴 Does idle borrowed cash accrue interest, or only deployed lots? |
+| Q-163 | Simple or compound interest |
+| Q-164 | Day-count convention (Actual/365 proposed) |
+| Q-165 | Is the borrowing rate per investor, per trading account, or global? |
+| Q-166 | Can the rate change over time (dated rate series)? |
+| Q-167 | Accrual base: original cost or current value? |
+| Q-168 | Does the sell day count toward days held? |
+| Q-169 | Are charges included in the accrual base? |
+| Q-170 | Which free price provider, and should unmapped symbols block a FREE run? |
