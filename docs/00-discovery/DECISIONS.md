@@ -617,3 +617,11 @@ empty candidate list is a valid outcome, logged as such rather than treated as a
 
 The structural-premium analysis (all five liquid global ETFs at +18.9% to +183.1%) is retained
 in the spec as context for choosing the number, not as behaviour baked into code.
+
+**D-053 — The borrowing rate is per trading account.** (Q-165 resolved.)
+Person A's cost of capital at Broker A may differ from Person A's at Broker B, and Person B's
+at Broker C differs again. The rate therefore attaches to the **(investor, broker)** pair —
+the same trading-account grain as every other config (D-037) — with no default (D-038).
+
+*Consequence: the cost-of-capital calculation runs per trading account and rolls up to the
+investor level for consolidated reporting, rather than applying one investor-wide rate.*

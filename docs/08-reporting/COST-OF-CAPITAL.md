@@ -326,12 +326,10 @@ per-lot arithmetic auditable.*
 *Recommendation: **Actual/365**, standard for INR facilities, and it matches the stated
 "interest runs on all seven days".*
 
-**Q-165 🟠 — Is the rate per trading account, per investor, or global?** Different investors
-may borrow at different rates, and Person A's Upstox and Dhan capital may come from the same
-facility.
-*Recommendation: **per investor**, since a borrowing facility belongs to a person, not to a
-broker relationship. But this cuts against the (trading_account, category) config grain, so
-it needs your call.*
+**~~Q-165~~ ✅ Resolved by D-053 — the rate is per trading account**, i.e. per
+(investor, broker). Person A's rate at Broker A may differ from Person A's at Broker B. This
+keeps cost of capital on the same config grain as everything else, and means accruals are
+computed per trading account and rolled up to the investor for consolidated reporting.
 
 **Q-166 🟠 — Can the rate change over time?** If the facility re-prices (say 10% → 11% in
 March), historical accruals must not be retroactively restated.
