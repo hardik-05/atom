@@ -34,8 +34,13 @@ constrains how far *above* NAV a purchase may go.
 
 | Setting | Scope | Default | Notes |
 |---|---|---|---|
-| `nav_check_enabled` | per account | **ON** | Master toggle; OFF disables the gate entirely |
-| `nav_premium_tolerance_pct` | per account × category | Equity 2.00 · Commodity 2.00 · Global **see §4** | Editable before any run |
+| `nav_check_enabled` | **trading account × category** | **ON** | Master toggle; OFF disables the gate entirely |
+| `nav_premium_tolerance_pct` | **trading account × category** | Equity 2.00 · Commodity 2.00 · Global **see §4** | Editable before any run |
+
+A **trading account is one investor's account at one broker** (D-037), so Person A's Upstox
+equity tolerance and Person A's Dhan equity tolerance are separate, independently editable
+values. Every figure in this document is a **default**, not a constant — see
+[`../01-architecture/CONFIGURATION-MODEL.md`](../01-architecture/CONFIGURATION-MODEL.md).
 
 Stored and compared at **4 decimal places**, displayed at 2 (D-026).
 

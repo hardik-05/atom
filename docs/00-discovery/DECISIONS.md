@@ -406,3 +406,21 @@ Impact on the other buckets is negligible and correctly calibrated: commodity ne
 | Q-150 | Behaviour when NAV is unavailable (18 of 350 lack i-NAV, 3 lack NAV/LTP) |
 | Q-151 | Use NAV (EOD) or i-NAV (intraday) for the live check |
 | Q-152 | Confirm `Hybrid` is excluded |
+
+**D-037 — Configuration scope is (trading account × category), where a trading account is
+one investor's account at one broker.** No operational number is hard-coded anywhere. The
+operator's instruction — "for each account, each broker and each category we should be able
+to change these numbers" — resolves to this key, because investor and broker always travel
+together and that pair is already the unit holding tokens, funds, holdings and orders.
+Person A with Upstox and Dhan therefore has two independently configurable trading accounts;
+with three categories that is 9 config rows across the current three-account setup.
+
+Values resolve most-specific-first through six levels, and each run records which level
+supplied each value. Config is versioned, snapshotted per run, frozen at run start, printed
+into the run log, and validated at write time. Full registry of every configurable value in
+[`../01-architecture/CONFIGURATION-MODEL.md`](../01-architecture/CONFIGURATION-MODEL.md).
+
+*Supersedes the narrower account × category scope proposed in Q-060.*
+| Q-153 | Confirm config resolution order |
+| Q-154 | Is one `category_priority` per trading account enough? |
+| Q-155 | May a VIEWER edit config, or ADMIN only? |
