@@ -163,9 +163,103 @@ So **two S3 buckets/paths**: a 30-day rolling one and a deep archive.
 
 | ID | Item |
 |---|---|
-| Q-051 | Percentage vs rupee deviation — deferred, needs to be re-asked with a clearer worked example |
-| Q-043 | "1 lakh" volume threshold — operator points to NSE's own published data using 100000; verify what NSE actually publishes and re-confirm units |
-| Q-137 | Reconciliation of buys that fill while the engine is down |
-| Q-138 | Confirm raw logs are excluded from Supabase while structured records are retained |
+| ~~Q-051~~ | ✅ Resolved by D-026 — percentage, 4dp internal / 2dp display |
+| ~~Q-043~~ | ✅ Resolved by D-027 — NSE ETF table Volume column, i.e. traded quantity |
+| ~~Q-137~~ | ✅ Resolved by D-029 — sell placed next working day; start-of-run reconciliation confirmed |
+| ~~Q-138~~ | ✅ Resolved by D-030/D-031 — structured rows in Supabase with 90-day purge; detailed files to Telegram |
 | Q-139 | Cost of Secrets Manager vs encrypted Supabase storage, to settle D-013 |
 | Q-140 | Feasibility and reliability of the domain auto-switch mechanism (D-018) |
+
+---
+
+## Round 3 — 2026-09-17
+
+### Strategy precision
+
+**D-026 — Deviation is ALWAYS expressed in percentage terms, never absolute rupees (Q-051).**
+Resolves the contradiction flagged as C-1/C-2 in the requirements capture.
+
+| Context | Precision |
+|---|---|
+| All internal calculation, storage and ranking | **4 decimal places** |
+| All UI display | **2 decimal places** |
+
+*Design consequences:* deviation columns are `NUMERIC(_,4)`; rounding to 2dp happens in the
+presentation layer only, never in the database or the ranking comparison. Two ETFs whose
+deviations differ only in the 3rd or 4th decimal place still rank deterministically. Rounding
+for display must never feed back into a decision.
+
+**D-027 — Volume threshold is traded quantity, per NSE's own ETF table (Q-043).**
+The authority is the **Volume column** of
+<https://www.nseindia.com/market-data/exchange-traded-funds-etf> — i.e. **units/shares
+traded**, not rupee turnover. The 1,00,000 default therefore means **100,000 units**.
+
+> ⚠️ **Verification pending.** `nseindia.com` is blocked by this environment's egress proxy,
+> so the column semantics could not be confirmed first-hand. The NSE ETF table is understood
+> to carry both a `Volume` column (shares) and a separate `Value` column (₹ lakhs); this
+> decision selects the former. Confirm before implementing. See Q-145.
+
+> **Practical note for the weekly job.** That NSE page shows a *single day's* snapshot. It
+> defines the metric but cannot supply the 25/60-day history the universe job needs, so
+> historical daily volume comes from the broker data API (D-017) using the same definition —
+> traded quantity, averaged over the configurable window (D-016).
+
+### Infrastructure
+
+**D-028 — IPv4-per-instance limits are real and already modelled (Q-012).**
+Confirmed: EC2 caps IPv4 addresses per instance at `max ENIs × max private IPv4 per ENI`.
+The cost analysis was built on those caps, not on an assumption of unlimited IPs —
+t3.nano/micro cap at 4, t3.small at 12, t3.medium at 18, t3.large at 36. The recommendation
+of a single t3.small already respects them and leaves room for 12 investors.
+Rows above t3.micro remain `❓ UNVERIFIED` pending `describe-instance-types` against a real
+AWS account (Q-142); if they come back lower than modelled, the topology table must be
+recomputed, since capacity — not cost — is what would force a second instance.
+
+### Orders
+
+**D-029 — Deferred sell placement is acceptable (Q-137, resolved).**
+- When a **GTT sell completes**, the next buy order for that security is placed on the
+  **next working day** — not intraday.
+- Where a broker does **not** support GTT and a buy **fills late in the day** after the
+  engine is down, its sell order is placed on the **next working day**.
+
+*Design consequence:* start-of-run reconciliation is confirmed as a required step. Every run
+begins by finding fills that occurred while the engine was down and placing the sell orders
+they are missing. No intraday re-wake is needed.
+
+### Logging
+
+**D-030 — Structured logs in Supabase with a 90-day purge (Q-138, resolved).**
+Log data **is** written to a structured table in Supabase, subject to a **90-day purge
+policy**. This supersedes the earlier reading that Supabase was excluded.
+
+**D-031 — Detailed logs are files, delivered to Telegram.**
+The verbose run log is a **`.log` or `.txt` file** pushed to the Telegram group, one per
+account per broker (§13 of the requirements capture), alongside the archival destinations
+in D-025.
+
+*Resulting split:*
+
+| Layer | Content | Store | Retention |
+|---|---|---|---|
+| Structured | Queryable run/decision/order rows | Supabase | **90 days, purged** |
+| Detailed | Full human-readable run narrative | `.log`/`.txt` → Telegram, S3, S3 Deep Archive, Google Drive, EC2 local | Telegram + Drive + Deep Archive permanent; S3 standard and EC2 local 30 days rolling |
+
+> ⚠️ **Tension to resolve (Q-146).** The original brief requires that an operator can query
+> the database to reconstruct *why* any trade was made. A 90-day purge means that
+> capability expires after 90 days, while the reports module needs month-on-month
+> financials over years. Proposal: **exempt the trade, order, position and harvest tables
+> from the purge** — purge only the high-volume diagnostic log rows. Confirm.
+
+## Open items after round 3
+
+| ID | Item |
+|---|---|
+| Q-139 | Cost of Secrets Manager vs encrypted Supabase storage, to settle D-013 |
+| Q-140 | Feasibility and reliability of the domain auto-switch mechanism (D-018) |
+| Q-141 | Confirm ap-south-1 on-demand pricing (egress-blocked here) |
+| Q-142 | Confirm ENI/IPv4 limits for t3.small and above via `describe-instance-types` |
+| Q-143 | Confirm free-tier status (750 free IPv4 hours/month) |
+| Q-144 | EBS root volume size, given 30 days of local log retention |
+| Q-145 | Confirm the NSE ETF table's Volume column is units, not turnover (egress-blocked here) |
+| Q-146 | Exempt trade/order/position/harvest tables from the 90-day purge? |
