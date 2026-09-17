@@ -251,6 +251,92 @@ in D-025.
 > financials over years. Proposal: **exempt the trade, order, position and harvest tables
 > from the purge** — purge only the high-volume diagnostic log rows. Confirm.
 
+### Round 3 addendum — NSE ETF table, confirmed from source (screenshot, 17-Sep-2026 16:00 IST)
+
+**D-027 is now VERIFIED, and the same source resolves more than the volume question.**
+
+Observed column set:
+
+`SYMBOL · CATEGORY · SUB-CATEGORY · OPEN · HIGH · LOW · PREV. CLOSE · LTP ·
+INDICATIVE CLOSE · CHANGE · % CHANGE · VOLUME · VALUE (₹ Crores) · i-NAV · NAV ·
+52 WEEK HIGH · 52 WEEK LOW`
+
+**D-027 confirmed — VOLUME is units traded.** `VOLUME` and `VALUE (₹ Crores)` are separate
+columns, and the arithmetic ties out exactly:
+
+| Symbol | Volume | LTP | Volume × LTP | VALUE shown |
+|---|---|---|---|---|
+| LIQUIDCASE | 2,57,71,011 | 115.96 | ₹298.8 cr | **298.81** ✅ |
+| NIFTYBEES | 47,32,947 | 266.36 | ₹126.0 cr | **125.85** ✅ |
+
+So the 1,00,000 threshold means **100,000 units**, as decided. Q-145 closed.
+
+---
+
+**D-032 — NSE already publishes the category. The LLM classifier is demoted to a fallback.**
+
+The table carries native `CATEGORY` and `SUB-CATEGORY` columns, and the observed values map
+directly onto the three required buckets plus the required exclusion:
+
+| NSE CATEGORY | Observed SUB-CATEGORY | ATOM bucket |
+|---|---|---|
+| `EQUITY` | Nifty 50, … | **Equity** |
+| `COMMODITY` | GOLD, SILVER | **Metals** |
+| `GLOBAL` | GLOBAL INDICES | **Global** |
+| `DEBT` | Overnight ETFs and Liquid ETF | **EXCLUDED** |
+
+This satisfies D-015's hard requirement — "debt and liquid ETFs must be excluded" — directly
+from exchange data, with no inference. Observed examples: LIQUIDCASE, LIQUIDBEES and LIQUID1
+are all `DEBT`, and would be excluded automatically.
+
+**Revised classification pipeline (supersedes D-015's ordering):**
+
+1. **NSE `CATEGORY`/`SUB-CATEGORY` is the authority** where present.
+2. **Keyword rules** as a cross-check; a disagreement with NSE raises a review flag rather
+   than silently overriding.
+3. **LLM classifier** (free NVIDIA-hosted models, five-model try/except cascade per D-015)
+   only for instruments NSE has not classified — typically a newly listed ETF — and for
+   sub-categorising sectoral ETFs for harvest proxy matching, which NSE does not provide at
+   the granularity correlation work needs.
+4. **Operator confirmation** remains the final authority for anything auto-assigned.
+
+*This materially reduces both cost and risk:* classification of the standing universe stops
+depending on an external LLM being available, and the LLM is confined to the genuinely
+ambiguous margin.
+
+**D-033 — Universe snapshot is downloadable.** The page exposes a **download control** and a
+**Category filter**, so the full table can be pulled as a file rather than scraped row by
+row. The weekly job (D-016) should prefer this, with the broker data API supplying the
+25/60-day history the single-day snapshot cannot.
+
+> **Scale check:** the page reported Advances 232 / Declines 105 / Unchanged 13 — about
+> **350 listed ETFs**. That is the size of the raw universe before the volume filter, and it
+> sets the sizing for the data pipeline and the daily quote budget.
+
+---
+
+**OPPORTUNITY — NAV and i-NAV are published (not yet a decision, needs your call).**
+
+The table carries `NAV` and `i-NAV` (indicative NAV) alongside `LTP`. The gap between LTP and
+i-NAV is an ETF's **premium/discount to fair value**, and it is a different signal from
+deviation-from-own-mean:
+
+- An ETF trading *below* its own mean may simply be tracking a falling underlying — the
+  strategy's intent.
+- An ETF trading *below its i-NAV* is cheap **relative to the assets it holds right now** —
+  a genuine mispricing, and often a liquidity artefact.
+
+Observed on 17-Sep: SILVERBEES LTP 216.69 vs i-NAV 297.13, and GOLDBEES 124.41 vs 283.07 —
+gaps far too large to be real premiums, which suggests the i-NAV column is on a different
+basis (per-unit vs per-gram, or a stale feed) and **must be validated before any use**.
+
+Two candidate uses, both deferred pending your decision (Q-147):
+1. A **guard rail**: refuse to buy an ETF trading at a large premium to i-NAV, however
+   oversold it looks against its own mean.
+2. A **second ranking input** alongside mean deviation.
+
+---
+
 ## Open items after round 3
 
 | ID | Item |
@@ -261,5 +347,7 @@ in D-025.
 | Q-142 | Confirm ENI/IPv4 limits for t3.small and above via `describe-instance-types` |
 | Q-143 | Confirm free-tier status (750 free IPv4 hours/month) |
 | Q-144 | EBS root volume size, given 30 days of local log retention |
-| Q-145 | Confirm the NSE ETF table's Volume column is units, not turnover (egress-blocked here) |
+| ~~Q-145~~ | ✅ Resolved — VOLUME is units; Volume × LTP reconciles to the VALUE (₹ cr) column |
 | Q-146 | Exempt trade/order/position/harvest tables from the 90-day purge? |
+| Q-147 | Use NAV / i-NAV premium-discount as a buy guard rail or ranking input? Validate the feed first |
+| Q-148 | Full list of NSE ETF CATEGORY values — only EQUITY, COMMODITY, GLOBAL and DEBT observed so far |
