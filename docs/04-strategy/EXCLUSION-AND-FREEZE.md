@@ -54,6 +54,8 @@ operator opts specific quantities *out*.
 | Typical use | Manual purchase of the same ETF, or an unrelated share | Conviction hold on a strategy position |
 | Effect on cost basis | Removed from ATOM's average entirely | Removed from the **sellable** average |
 | Typical lifetime | Permanent | Temporary |
+| Cost of capital | **Never accrues** — not ATOM capital | **Accrues** — deployed ATOM capital |
+| Expected frequency | The normal case | "Highly unlikely" — rare, per the operator |
 
 Both reduce sellable quantity; separating them keeps the reporting honest about what the
 strategy actually did.
@@ -117,7 +119,7 @@ it may mean an order filled that ATOM never recorded.
 | **Sell logic** (D-054) | Sells only the sellable quantity, at an average recomputed over it |
 | **Buy logic** | The holdings-skip check uses the **whole broker account** (Q-059b) — an excluded ETF still counts as held and is still skipped when ranking |
 | **Averaging** | Only sellable quantity is averaged; excluded quantity is untouched |
-| **Cost of capital** (D-045) | Excluded quantity is **not** ATOM capital and does not accrue. Frozen quantity **is** ATOM capital and continues to accrue — it is deployed, just not for sale |
+| **Cost of capital** (D-045) | **Confirmed by the operator:** frozen quantity **is** ATOM capital and continues to accrue — it is deployed, just not for sale. Excluded quantity was bought outside the system, is **not** ATOM capital, and never accrues |
 | **Reports** | Excluded quantity is outside ATOM's P&L entirely; frozen quantity is inside it, held |
 
 > The cost-of-capital row above is the subtle one: **freezing a position does not stop its

@@ -10,16 +10,27 @@
 
 ---
 
-## 1. ⚠️ GTT IS NO LONGER REQUIRED (D-060, 17-Sep-2026)
+## 1. GTT IS REQUIRED — place and cancel only (D-063, supersedes D-060)
 
-**The GTT research below is retained for reference but is no longer driving the design.**
-ATOM now places plain DAY limit sell orders, recomputed and re-placed every morning, because a
-resting GTT goes stale the moment a position is averaged and broker support is uneven. No
-adapter needs a GTT endpoint, GTT semantics or GTT reconciliation.
+GTT was briefly removed and is now **reinstated**, because it is what protects a position on
+days the engine is not run. The staleness problem is solved procedurally instead: **every run
+cancels all ATOM-placed GTTs first**, verifies the book is clean, then re-places from freshly
+computed averages.
 
-*This removes the single largest source of divergence between the five broker adapters.*
+**Required GTT surface per adapter — deliberately minimal:**
 
-## 1a. Original finding — GTT is available everywhere, but not uniformly
+| Method | Needed | Note |
+|---|---|---|
+| `place_gtt` | ✅ | One per sellable holding, each run |
+| `cancel_gtt` | ✅ | The cancel-all-first step; **must return the broker order ID at placement so only ATOM's own orders are cancelled** |
+| `get_gtt_orders` | ✅ | To verify the book is clean before proceeding |
+| `modify_gtt` | ❌ | **Not required** — ATOM cancels and re-places, never modifies |
+
+**Still to verify per broker:** whether cancellation is synchronous or needs re-polling
+(Q-185), maximum validity, and whether a GTT survives its underlying holding being sold by
+other means.
+
+## 1a. Finding — GTT is available everywhere, but not uniformly
 
 Decision Q-055 chose "GTT where supported, DAY fallback". Round 1 confirms **all five brokers
 expose a GTT-style facility**, so the fallback path may be needed far less than assumed —
@@ -32,6 +43,10 @@ but the semantics differ enough that the adapter must normalise them.
 | **Zerodha** | ✅ GTT via Kite Connect | Place/modify/cancel alongside regular, AMO and cover orders ([docs](https://zerodha.com/products/api/)) |
 | **Groww** | ✅ GTT under "Smart Orders" | Valid **up to 1 year**; states ACTIVE / TRIGGERED / CANCELLED / EXPIRED / FAILED / COMPLETED; COMMODITY segment unsupported ([docs](https://groww.in/trade-api/docs/python-sdk/smart-orders)) |
 | **Shoonya** | ⚠️ GTT via **REST only — not in the Python SDK** | Alert-type parameters (e.g. `LTP_A_O` for "LTP above") drive the trigger ([FAQ](https://faq.shoonya.com/api/can-i-place-a-gtt-good-till-trigger-order-through-apis/)) |
+
+**With GTT reinstated, the Shoonya row matters again:** its Python SDK cannot place the order
+this strategy depends on, while its REST API can. That settles the raw-HTTP decision (D-056b)
+on capability grounds, not just preference.
 
 **Design consequence.** The Shoonya row is the first hard evidence for the Q-026 proposal to
 implement **raw HTTP rather than vendor SDKs**: Shoonya's own Python SDK cannot place the

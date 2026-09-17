@@ -758,3 +758,82 @@ Full detail in [`../04-strategy/EXCLUSION-AND-FREEZE.md`](../04-strategy/EXCLUSI
 | Q-180 | Should a freeze carry an optional auto-release expiry? |
 | Q-181 | If holdings fall below the excluded quantity, auto-reduce or flag? |
 | Q-182 | Auto-create exclusions for unidentified quantity, or always manual? |
+
+---
+
+## Round 8 — 2026-09-17
+
+### 🔴 D-063 — GTT REINSTATED, with a mandatory cancel-all-first step. *(Withdraws D-060; restores D-003.)*
+
+The reason GTT was dropped — a resting order going stale after averaging — is removed
+procedurally rather than by abandoning GTT:
+
+```
+1. CANCEL    every ATOM-placed GTT sell for this account
+2. VERIFY    re-read the order book; a survivor HALTS the run and alerts
+3. HOLDINGS  read from broker
+4. EXCLUDE   subtract excluded + frozen (D-062)
+5. RECOMPUTE weighted-average buy price over sellable quantity
+6. PLACE     fresh GTT sells at round_UP(avg × (1 + target))
+7. BUY LOOP  only then
+```
+
+Averaging happens only during a run, so a cancel-then-re-place at the head of every run means
+a stale GTT can never survive one. Between runs the resting GTT is consistent with the last
+run's state by construction.
+
+**What this buys back:** positions stay protected on days the engine is not run — miss two
+days and a target can still be hit and filled. That was the operator's decisive objection to
+D-060 and it was correct.
+
+> ⚠️ **Cancel only ATOM's own GTT IDs.** The account may hold GTTs the operator placed by hand,
+> including against excluded holdings (D-062). Every GTT ATOM places is recorded with its
+> broker order ID, and only those are cancelled. An unrecognised resting sell is **reported,
+> never cancelled**. (Q-184)
+
+Adapter surface: `place_gtt`, `cancel_gtt`, `get_gtt_orders`. **`modify_gtt` is not required** —
+ATOM cancels and re-places, never modifies.
+
+### D-064 — Corporate actions: detect and deactivate, do not adjust. *(Supersedes D-058b.)*
+
+ATOM does not source or apply corporate-action adjustments. It detects the symptom:
+
+```
+if |close_today − close_yesterday| / close_yesterday > corp_action_threshold_pct:
+        mark ETF INACTIVE — no ranking, no buying, no averaging
+```
+
+`corp_action_threshold_pct` is config per (trading account × category), starting at **20%**,
+operator-adjustable. Deactivation blocks buying from that day, covering the Thursday/Friday
+exposure described.
+
+**Reactivation** happens at the Saturday universe rebuild: if the broker has adjusted its
+history (likely), the ETF returns automatically; if not, it stays inactive and is reported
+again. Both paths are safe, which is the design's point — no corporate-action feed is needed
+and double-adjustment is impossible.
+
+Deactivations are logged, shown on Daily Status, included in the weekly rejected-ETF CSV
+(D-058g), and retained in the ETF master with date and reason.
+Full detail in [`../04-strategy/CORPORATE-ACTIONS.md`](../04-strategy/CORPORATE-ACTIONS.md).
+
+*Rationale for 20%: larger than almost any normal single-day ETF move, smaller than any split
+ratio in common use (1:2 = −50%, 1:5 = −80%). Known blind spot: a 4:5 split is −20% and sits on
+the threshold — accepted (Q-186).*
+
+### D-065 — Freeze accrues cost of capital; exclusion does not. *(Confirms D-062.)*
+Frozen quantity was bought by ATOM, is deployed ATOM capital, and **continues to accrue**.
+Excluded quantity was bought outside the system, is not ATOM capital, and **never accrues**.
+The operator notes freezing is expected to be rare; exclusion is the normal case.
+
+### D-066 — `modify_order` is removed from the broker adapter contract. *(Answers Q-021.)*
+Not required: orders are placed or cancelled, never amended. A buy either fills or does not;
+an unfilled sell is cancelled and re-placed next run. The contract is therefore:
+`authenticate`, `get_funds`, `get_holdings`, `get_positions`, `place_order`, `cancel_order`,
+`get_order_status`, `get_order_book`, `get_trade_book`, `get_historical_candles`, `get_quote`,
+`get_ledger`, `get_charges`, `get_funds_credits`, `place_gtt`, `cancel_gtt`, `get_gtt_orders`.
+
+| Q-184 | Confirm: cancel only ATOM-recorded GTT IDs; report unrecognised resting sells |
+| Q-185 | Per broker: is GTT cancellation synchronous, or must the book be re-polled? |
+| Q-186 | Small-ratio splits (4:5 = −20%) sit on the threshold — accept, or add a feed later? |
+| Q-187 | Should a holding in a deactivated ETF still get its sell order? *(Rec: yes — only buying is blocked)* |
+| Q-188 | Threshold check on adjusted or raw close? *(Rec: whatever the broker returns)* |

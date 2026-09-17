@@ -1,73 +1,77 @@
 # Sell Logic
 
 **Status:** 🟢 Specified
-**Implements:** D-054 … D-058 · **supersedes D-003 (GTT)**
+**Implements:** D-063 … D-066 · **restores D-003 (GTT), withdrawing D-060**
 
 ---
 
-## 1. GTT is removed from the design (D-054)
+## 1. GTT, with a mandatory cancel-all first (D-063)
 
-> "This brings up a very important question about GTT. A GTT is triggered, and when you average,
-> the GTT order still stays intact. So let's get rid of GTT — only place limit orders, so every
-> morning when you run, you place fresh sell orders based on your computation. Some brokers
-> offer GTT, some do not. Every morning, fresh limit orders, and by default by 4:15 the broker
-> cancels them."
+> "If you go ahead with GTT and implement one change — you cancel all the sell orders right
+> before doing anything. Every day you cancel each and every sell order, then validate the
+> order queue is fresh, then start running the engine. That way the GTT considers the average
+> buy price for the action that happened yesterday. If for two days the user was not able to
+> run the engine, this will not lose us selling our securities at profit."
 
-**Decision reversed.** D-003 chose GTT-where-supported with a DAY fallback. That is now
-withdrawn. ATOM places **plain DAY limit sell orders only**.
+**GTT is reinstated.** D-060 (remove GTT) is withdrawn; D-003 is restored with one addition
+that removes the reason it was dropped.
 
-### Why the reversal is correct
+### Why this resolves the staleness problem
 
-| Problem with GTT | Consequence |
-|---|---|
-| **A resting GTT goes stale on averaging** | Averaging changes the weighted-average buy price, so the old target is wrong. A GTT placed weeks ago silently sells at the pre-averaging target |
-| Cancel-and-replace is required anyway | Any position that averages needs its GTT cancelled and rewritten — so the "set and forget" benefit evaporates exactly where it mattered |
-| Broker support is uneven | Five brokers, five sets of GTT semantics, validity rules and modification quirks — the largest single source of adapter divergence |
-| GTT state lives at the broker | ATOM's view and the broker's view can drift with no reconciliation point |
+GTT was removed because a resting order goes stale the moment a position is averaged. But
+averaging only ever happens **during a run** — so if every run begins by cancelling every
+resting sell and then re-placing from freshly computed averages, a stale GTT cannot survive a
+run. Between runs, the resting GTT is by definition consistent with the last run's state.
 
-**Placing fresh orders each morning eliminates all four.** The target is always computed from
-the current average buy price, on current holdings, under the current config.
+The benefit that removal sacrificed is recovered in full: **a position stays protected on days
+the engine is not run.** Miss two days and the target can still be hit and filled.
 
-### The daily cycle
+### The run sequence
 
 ```
-Morning run
-  ├── read holdings from the broker
-  ├── apply exclusions and freezes (§3)
-  ├── recompute weighted-average buy price per security
-  ├── compute target = avg_buy_price × (1 + profit_target_pct)
-  ├── round UP to the nearest valid tick
-  └── place ONE DAY limit sell per sellable security
-
-15:30  market closes
-~16:15 broker cancels all unfilled DAY orders
-
-Next morning — repeat, on whatever the holdings now are
+1. CANCEL      cancel every ATOM-placed GTT sell order for this account
+2. VERIFY      re-read the order book; confirm the queue is clean
+                 └─ any survivor → HALT, do not proceed, alert
+3. HOLDINGS    read current holdings from the broker
+4. EXCLUDE     subtract excluded and frozen quantities (D-062)
+5. RECOMPUTE   weighted-average buy price over sellable quantity
+6. PLACE       one fresh GTT sell per sellable security, at
+                 round_UP_to_tick(avg_buy × (1 + profit_target_pct))
+7. BUY LOOP    only now does the buy side run
 ```
 
-**Consequence to accept:** a position is **unprotected on any day the engine is not run**. If
-the target is hit on a day you do not start the engine, the sale does not happen. This is the
-deliberate trade-off for always-correct pricing, and it makes running the engine every trading
-day an operational requirement rather than an option.
+**Step 2 is not optional.** Proceeding while an old sell order survives would leave two live
+sells for one holding — the exact failure mode D-055 forbids. A failed cancellation halts the
+run and alerts, rather than continuing and hoping.
 
-*This also materially simplifies the broker layer — no GTT endpoint, no GTT semantics, no GTT
-reconciliation in any of the five adapters.*
+> ⚠️ **Cancel only ATOM's own GTT orders — never blindly cancel everything.**
+> The account may carry GTT orders the operator placed by hand, including for excluded holdings
+> (D-062). A blanket "cancel all" would silently destroy them.
+> **Requirement:** every GTT ATOM places is recorded with its broker-assigned ID, and only
+> those IDs are cancelled. A resting sell that ATOM has no record of is **reported, not
+> cancelled** — it is either a manual order to leave alone, or a reconciliation gap worth
+> knowing about. See Q-184.
 
----
+### Consequences for the broker layer
+
+GTT support is back in scope for all five adapters, and its uneven semantics return with it:
+validity periods, modification rules, and whether a GTT survives the underlying holding being
+sold by other means. This is documented per broker in the capability matrix. ATOM only ever
+**places** and **cancels** GTTs — never modifies them — which keeps the required surface
+minimal even where broker behaviour differs.
 
 ## 2. One sell order per security (D-055)
 
 Never two. At the start of each run, reconcile against the broker's order book:
 
-| Found | Action |
-|---|---|
-| No resting sell | Place one |
-| Resting sell, correct price and quantity | Leave it |
-| Resting sell, wrong price or quantity | **Cancel and replace** |
-| Resting sell for an excluded/frozen quantity | Cancel down to the sellable quantity |
+Because step 1 cancels every ATOM sell order before anything else, each run starts from a
+clean book by construction. The remaining cases are:
 
-In practice DAY orders expire overnight, so most runs start from a clean book. The
-reconciliation exists for same-day re-runs and for orders placed by other means.
+| Found after the cancel pass | Action |
+|---|---|
+| Nothing resting | Normal — place the fresh GTT |
+| An ATOM order that failed to cancel | **HALT the run** and alert (step 2) |
+| A sell ATOM has no record of | **Leave it, report it** — manual order or reconciliation gap |
 
 ---
 
@@ -136,6 +140,8 @@ category suppresses **buying only**.
 
 | ID | Item |
 |---|---|
-| Q-177 | Is a position left unprotected on a non-run day acceptable, or should a "sells-only" quick run mode exist for days you do not want to buy? |
+| ~~Q-177~~ | ✅ Withdrawn — GTT reinstated (D-063), so positions stay protected on non-run days |
+| Q-184 | Confirm: cancel only ATOM-recorded GTT IDs, and report rather than cancel unrecognised resting sells |
+| Q-185 | Per broker: does cancelling a GTT return a synchronous confirmation, or must the order book be re-polled to verify? Affects step 2 |
 | Q-178 | Per broker: where and when DP charges surface (P&L vs ledger, same-day vs T+n) — round 2 research |
 | Q-179 | Tick size per ETF — is ₹0.01 universal on NSE ETFs, or does it vary by price band? |
