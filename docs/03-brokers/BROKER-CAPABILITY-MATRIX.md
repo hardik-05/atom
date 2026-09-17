@@ -10,7 +10,16 @@
 
 ---
 
-## 1. Headline finding — GTT is available everywhere, but not uniformly
+## 1. ⚠️ GTT IS NO LONGER REQUIRED (D-060, 17-Sep-2026)
+
+**The GTT research below is retained for reference but is no longer driving the design.**
+ATOM now places plain DAY limit sell orders, recomputed and re-placed every morning, because a
+resting GTT goes stale the moment a position is averaged and broker support is uneven. No
+adapter needs a GTT endpoint, GTT semantics or GTT reconciliation.
+
+*This removes the single largest source of divergence between the five broker adapters.*
+
+## 1a. Original finding — GTT is available everywhere, but not uniformly
 
 Decision Q-055 chose "GTT where supported, DAY fallback". Round 1 confirms **all five brokers
 expose a GTT-style facility**, so the fallback path may be needed far less than assumed —

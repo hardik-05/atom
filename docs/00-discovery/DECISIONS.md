@@ -625,3 +625,136 @@ the same trading-account grain as every other config (D-037) — with no default
 
 *Consequence: the cost-of-capital calculation runs per trading account and rolls up to the
 investor level for consolidated reporting, rather than applying one investor-wide rate.*
+
+---
+
+## Round 7 — 2026-09-17 (answers to PENDING-QUESTIONS 1–55)
+
+### Engagement
+- **D-054a** Build order confirmed: **paper gateway + strategy engine first**, then brokers,
+  console, harvesting, reports. No go-live date. Monorepo. `docs/` keeps its name. Mermaid
+  **and** rendered PNGs. Audience is the **development team only** — so documents stay as
+  detailed as possible.
+- **D-054b** "ATOM" is a **pet name**, not a product or brand. No brand assets needed.
+- **D-054c — Process rule:** review in batches, and **whenever a new feature is requested,
+  revisit every connected component and raise as many questions as possible** before designing.
+
+### Infrastructure
+- **D-055a** Instance up **15–20 min/day**. Auto-shutdown at **60 min idle**, Telegram warning
+  at **45 min**.
+- **D-055b** Region `ap-south-1`, but **region must be config-driven** so a future move to
+  another region is seamless. Fresh AWS account on **free tier**.
+- **D-055c** Instance fully disposable; Docker image on ECR; order intent written to DB before
+  sending.
+- **D-055d — Secrets live encrypted in Supabase, NOT AWS Secrets Manager.** Chosen on cost:
+  Supabase is already paid for, Secrets Manager is not. *(Supersedes the Q-073 recommendation.)*
+- **D-055e** EBS root volume **1–3 GB, not 20 GB**. Logs record actions and decisions, not
+  prices, and carry a 30-day purge; growth beyond 2–3 GB is not expected.
+- **D-055f** Budget **$10–15/month**, with an **AWS billing alert at $15**.
+- **D-055g** Scope the infra for **3 accounts, 2 onboarded now**. Revisit the whole hosting and
+  engine design if more users are added.
+- **D-055h — Domain auto-switch: build and measure, do not assume.** Construct a raw test site
+  for **each** of the three options — DNS switching, reverse proxy, Render-side redirect —
+  measure switch latency, and adopt the fastest. Design end-to-end once measured.
+
+### Brokers
+- **D-056a — API access exists for all five brokers.** The system must be runnable from day one
+  the moment tokens are entered; the intent is to dry-run for a week or a month first, then go
+  live.
+- **D-056b** Shared rate limiter per broker per account. **Raw HTTP**, not vendor SDKs.
+  **Delivery (CNC) always. NSE preferred over BSE.**
+- **D-056c — Buy orders are LIMIT at a freshly fetched LTP.** After the candidate list is
+  finalised, make an **LTP call immediately before placing each order**, then price the limit
+  from that — not from the ranking snapshot.
+
+### Telegram and run lifecycle
+- **D-057a** Two chats: one for instance up/down and status, one for engine logs only.
+- **D-057b — No boot polling.** The user sends `/start`, waits, and sends `/status` when they
+  choose. If not ready, they check again. No automatic poll loop.
+- **D-057c — The engine never self-starts.** Even the weekly universe job is operator-triggered
+  from its screen. The universe job needs **no static IP**.
+- **D-057d** NSE holiday awareness is **out of scope** — the operator knows the calendar.
+- **D-057e — Runs per day are config-driven:** `allow_multiple_runs_per_day`. When off, a second
+  Execute is refused; when on, it proceeds.
+- **D-057f — Concurrency is queued, not parallel.** The operator may hit Execute for several
+  accounts; the backend runs them **linearly** to avoid DB contention. The UI shows one status
+  per account from exactly four states: **QUEUED · EXECUTING · COMPLETED · FAILED**, updated
+  per stage. Deliberately lightweight — no detailed progress telemetry.
+- **D-057g** Hard failures alert to **Telegram, the run log, and a local log on the instance**
+  readable from the EC2 terminal.
+
+### Market data and universe
+- **D-058a — Retain 8 quarters (~2 years) of prices on a rolling window**; as new prices arrive,
+  the earliest are deleted.
+- **D-058b — No corporate-action adjustment.** Use the rate as given; ETFs are not expected to
+  carry corp actions. *(Supersedes the Q-046 recommendation — see risk note below.)*
+- **D-058c — Price refresh is part of the weekly job and runs only on demand.** Never automatic.
+  Brokers often cap a single history call at ~30 days, so multiple paginated calls are needed;
+  **~200 days is the maximum back-refresh.**
+- **D-058d — ETF eligibility = history available for (lookback + 10 days).** No other
+  eligibility rule; the volume filter does the rest.
+- **D-058e** The weekly universe is **frozen for the week**. No midweek refresh.
+- **D-058f — Missing NAV handling:** missing for **one day** → interpolate as the average of the
+  previous and following day. Missing for **multiple days** → **exclude the ETF**.
+- **D-058g — The weekly job emits two CSVs to Telegram:** the frozen **universe** and the
+  **rejected/excluded ETF** list, for verification. Both are also stored in Supabase and
+  archived to **S3** — as are all logs and generated files.
+- **D-058h** Use **i-NAV when present, NAV as fallback**.
+- **D-058i — Upstox is the primary price source**; Yahoo Finance exists only as a fallback,
+  since it does not cover the whole universe.
+
+### Strategy
+- **D-059a** Mean vs median stays config-driven.
+- **D-059b — Quantity uses a configurable budget buffer.**
+  `quantity = floor((trade_amount × budget_buffer_pct) / ltp)`.
+  Default **99%**, because brokerage pushes a naive `amount/price` order over the budget — at
+  ₹1,000 and ₹100/unit, 10 units costs ₹1,010–1,020 and is rejected. The buffer is
+  **config per account × broker × category** and **may exceed 100%** — 105% deliberately dips
+  into residual funds, 200% is permitted.
+- **D-059c** One sell order per security; reconcile against the order book; cancel-and-replace
+  wrong prices; never double.
+
+### 🔴 D-060 — GTT REMOVED. Fresh DAY limit sells every morning. *(Reverses D-003.)*
+A resting GTT **goes stale the moment a position is averaged**, and broker GTT support is
+uneven. ATOM therefore places plain **DAY limit sell orders**, recomputed and re-placed each
+morning from the current weighted-average buy price; the broker cancels them at ~16:15.
+*Accepted trade-off: a position is unprotected on any day the engine is not run, making a daily
+run an operational requirement.* Simplifies all five broker adapters — no GTT endpoints,
+semantics or reconciliation. Full detail in
+[`../04-strategy/SELL-LOGIC.md`](../04-strategy/SELL-LOGIC.md).
+
+### D-061 — Profit is all-in, excluding capital cost and tax
+`Profit = sell − buy − brokerage − STT − exchange − SEBI − stamp duty − GST − DP charges`.
+**Cost of capital and tax are excluded from profit** and reported on their own screens. DP
+charges are the hard part: some brokers report them in the P&L, others only in the ledger days
+later, so profit is **provisional until reconciled** and the UI must say which it is.
+Sell target always **rounds up**.
+
+### 🔴 D-062 — NEW: Exclusion and Freeze subsystem
+ATOM does not own the account, so the morning sell pass must not sell holdings that were never
+the strategy's. `sellable = holding − excluded − frozen`.
+- **Exclusion** = quantity ATOM did not buy (manual purchases, unrelated shares).
+- **Freeze** = quantity ATOM did buy but the operator wants held.
+- **Default is to sell:** a holding with no exclusion entry **is** sold at the configured
+  percentage.
+- Holdings are flagged **`ATOM`** or **`UNIDENTIFIED`** by reconciliation against our own order
+  records.
+- **The weighted-average buy price is recomputed over the sellable quantity** before every sell.
+Full detail in [`../04-strategy/EXCLUSION-AND-FREEZE.md`](../04-strategy/EXCLUSION-AND-FREEZE.md).
+
+---
+
+> ⚠️ **Risk accepted under D-058b (no corporate-action adjustment).** ETFs do split — Nippon
+> split GOLDBEES and several ETFs have split to improve retail accessibility. An unadjusted
+> split shows as a large single-day price fall, which this strategy reads as an extreme negative
+> deviation and would rank as its **top buy candidate**. Recommended cheap mitigation: a
+> **sanity gate** rejecting any candidate whose one-day move exceeds a configurable threshold
+> (say 20%) pending operator confirmation. Raised as **Q-183**.
+
+| Q-183 | Sanity gate on implausible one-day moves, to catch unadjusted splits |
+| Q-177 | Acceptable that positions are unprotected on non-run days, or add a sells-only quick run? |
+| Q-178 | Per broker: where and when DP charges surface — round 2 research |
+| Q-179 | Is ₹0.01 the universal NSE ETF tick, or does it vary by price band? |
+| Q-180 | Should a freeze carry an optional auto-release expiry? |
+| Q-181 | If holdings fall below the excluded quantity, auto-reduce or flag? |
+| Q-182 | Auto-create exclusions for unidentified quantity, or always manual? |
