@@ -70,14 +70,17 @@ D-004 recorded the posture as "self and family, own accounts", which placed ATOM
 compliance surface of an external service. **That conclusion holds only if every onboarded
 investor falls inside SEBI's definition.**
 
-> ❓ **Q-192 — What is Person B's relationship to the operator?**
-> - **Spouse, dependent child or dependent parent** → inside the exemption. No change.
-> - **Sibling, friend, independent parent, anyone else** → **outside it.** Running ATOM on
->   their account would make the operator an **algo provider**, which is a registered role
->   acting as an agent of the broker — a different regulatory posture entirely.
+> ✅ **Q-192 RESOLVED — the system is for family only, and in practice mostly the operator's
+> own accounts across different brokers.**
+>
+> Multiple accounts belonging to the same person is the **simplest possible case**: "self" is
+> unambiguously inside SEBI's definition, with no dependency test to argue about. ATOM is
+> comfortably inside the retail self-use exemption.
 
-This is the single most important open question in the project, because it is the only one
-that can invalidate the operating model rather than change a design detail.
+**Onboarding policy (D-092): family only, as SEBI defines it.** Any future request to onboard
+someone outside self / spouse / dependent children / dependent parents is a **regulatory
+decision requiring fresh review**, not a configuration change. The onboarding flow should
+record the relationship for each investor so this stays visible rather than tribal knowledge.
 
 ---
 
