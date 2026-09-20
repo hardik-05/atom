@@ -1003,3 +1003,41 @@ Secrets Manager was rejected on cost. Options that are genuinely free:
   settlement spanning a long weekend simply costs more — which is exactly what the bucket exists
   to reveal. Because `credit_date` is observed, never assumed (D-050), an extended settlement
   over a holiday cluster is captured automatically.
+
+---
+
+## Round 11 — 2026-09-20
+
+- **D-081 — Cancel only ATOM-placed GTT orders.** (Q-184 closed.) Every GTT ATOM places is
+  recorded with its broker order ID, and the cancel pass targets only those. Orders placed
+  manually are never touched; an unrecognised resting sell is **reported, never cancelled**.
+- **D-082 — A deactivated ETF still gets its sell order.** (Q-187 closed.) Selling needs only
+  the average buy price, the quantity and the target — none of which come from the suspect
+  price series. Corporate-action deactivation therefore blocks **buying only**.
+- **D-083 — The corp-action threshold checks whatever close the broker returns.** (Q-188
+  closed.) That is the series the strategy consumes, so it is the series that must be sane.
+- **D-084 — 🔴 Nothing is ever auto-released. Ever.** (Q-180 closed.)
+  A freeze, an exclusion or a corporate-action deactivation **never expires, never auto-releases
+  and never reverts to sellable on its own**. Only an explicit operator action releases any of
+  them. No expiry dates, no timers, no "stale entry" cleanup.
+
+  > "If manually a security is placed on freeze or is deactivated, do not ever un-release it or
+  > make it sell. That should be totally in the user's hands."
+
+  *Design consequence: no background job may mutate freeze, exclusion or deactivation state.
+  The only writer is the operator, through the UI. This is stricter than the earlier D-064
+  wording, which had the weekly universe job reactivating a deactivated ETF automatically —
+  **that auto-reactivation is withdrawn**; the weekly job may only re-evaluate and **report**,
+  leaving the release to the operator.*
+
+- **D-085 — Exclusion drift is flagged, never auto-corrected.** (Q-181 closed.) If holdings fall
+  below the excluded quantity, raise a flag for the operator. Silently reducing the exclusion
+  would hide a reconciliation gap.
+- **D-086 — ATOM never auto-creates exclusions.** (Q-182 closed.) Unidentified quantity is
+  reported; the operator decides. Auto-excluding would silently stop ATOM selling something it
+  should sell.
+
+### Process gate
+- **D-087 — All discussion closes before any code is written.** Broker research and end-to-end
+  broker detail complete first; the first line of application code waits until the design
+  conversation is finished.

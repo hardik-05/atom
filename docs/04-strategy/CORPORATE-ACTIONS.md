@@ -58,20 +58,26 @@ which is the point.**
 
 ---
 
-## 3. Reactivation — the weekly universe job
+## 3. Reactivation is MANUAL — never automatic (D-084)
 
-The Saturday universe job (D-058e) rebuilds from freshly fetched history. An ETF flagged
-inactive is re-evaluated then:
+**Auto-reactivation is withdrawn.** Nothing in ATOM ever releases a deactivation on its own.
+
+> "Do not ever un-release it or make it sell. That should be totally in the user's hands."
+
+The Saturday universe job (D-058e) rebuilds from freshly fetched history and **re-evaluates**
+each inactive ETF, but only to **report**:
 
 | On rebuild | Outcome |
 |---|---|
-| History now consistent (broker adjusted) | **Reactivated**, re-enters the universe for the week |
-| History still shows the discontinuity | **Stays inactive**, reported again |
+| History now consistent (broker adjusted) | **Reported as "appears resolved — ready to reactivate"**. Stays inactive until the operator releases it |
+| History still shows the discontinuity | **Reported as still inconsistent**. Stays inactive |
 
-Because the universe is frozen weekly (D-058e), an ETF deactivated on Thursday sits out the
-rest of that week at most, then returns the following Monday if its data is clean. Worst case
-is a couple of missed trading days in one instrument — a cheap insurance premium against
-buying a phantom 50% discount.
+The operator releases it from the ETF master screen. No background job may write to
+deactivation state — the only writer is the operator.
+
+*Trade-off accepted: an ETF stays out of the universe until someone looks at the report. That
+is the deliberate cost of never letting an automatic process put a suspect instrument back in
+front of the buy logic.*
 
 ---
 
@@ -113,5 +119,5 @@ A deactivated ETF is never silent:
 | ID | Item |
 |---|---|
 | Q-186 | Small-ratio splits (e.g. 4:5 = −20%) are indistinguishable from a sharp fall. Accept, or add a corporate-action feed later? |
-| Q-187 | Should an existing **holding** in a deactivated ETF still get its sell order placed? *(Recommendation: yes — the holding is real, and its average buy price comes from our own lot records, not from the suspect price series. Only buying is blocked.)* |
-| Q-188 | Does the threshold check use adjusted or raw close, given D-058b declined adjustment? *(Recommendation: whatever the broker returns — that is the series the strategy consumes.)* |
+| ~~Q-187~~ | ✅ D-082 — yes, sells continue; only buying is blocked |
+| ~~Q-188~~ | ✅ D-083 — whatever close the broker returns |

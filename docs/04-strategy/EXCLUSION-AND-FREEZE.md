@@ -53,7 +53,7 @@ operator opts specific quantities *out*.
 | Meaning | "This was never the strategy's" | "Hold this; don't sell it yet" |
 | Typical use | Manual purchase of the same ETF, or an unrelated share | Conviction hold on a strategy position |
 | Effect on cost basis | Removed from ATOM's average entirely | Removed from the **sellable** average |
-| Typical lifetime | Permanent | Temporary |
+| Typical lifetime | Permanent | Until the operator releases it — **never auto-released** (D-084) |
 | Cost of capital | **Never accrues** — not ATOM capital | **Accrues** — deployed ATOM capital |
 | Expected frequency | The normal case | "Highly unlikely" — rare, per the operator |
 
@@ -131,6 +131,6 @@ it may mean an order filled that ATOM never recorded.
 
 | ID | Item |
 |---|---|
-| Q-180 | Should a freeze carry an optional expiry date, auto-releasing after N days? |
-| Q-181 | If holdings drop below the excluded quantity (the user sold manually), auto-reduce the exclusion or flag it? |
-| Q-182 | Should ATOM ever auto-create an exclusion when it detects an unidentified quantity, or always require explicit operator action? |
+| ~~Q-180~~ | ✅ **D-084 — nothing ever auto-releases.** No expiry dates, no timers, no cleanup jobs. Only an explicit operator action releases a freeze or exclusion |
+| ~~Q-181~~ | ✅ D-085 — flag the drift, never auto-correct |
+| ~~Q-182~~ | ✅ D-086 — never auto-create exclusions; report and let the operator decide |
