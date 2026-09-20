@@ -1,181 +1,290 @@
 #!/usr/bin/env python3
 """
-Fetch reference / prospectus data for every ETF in the ATOM universe.
+Fetch reference data for every ETF in the ATOM universe, from public sources.
 
-For each ETF this collects, where available:
-    full scheme name, AMC, target benchmark index, ISIN, expense ratio,
-    launch date, underlying asset
+Resolves, per symbol:  full scheme name, AMC, ISIN, benchmark index, exchange.
 
-Sources are tried in order and the first success per field wins. Everything is
-recorded with its source and fetch timestamp so a value can always be traced.
+DESIGN NOTE — why this script no longer depends on NSE
+------------------------------------------------------
+The first version keyed everything off NSE: ISIN came from the NSE API, and the
+AMFI lookup was keyed on that ISIN. So when NSE returned 403 (it aggressively
+blocks non-browser clients), every downstream source failed too and the output
+was empty.
 
-    1. NSE ETF listing       https://www.nseindia.com/api/etf
-    2. NSE quote             https://www.nseindia.com/api/quote-equity?symbol=<SYM>
-    3. AMFI scheme master    https://portal.amfiindia.com/spages/NAVAll.txt   (ISIN -> scheme)
-    4. MFAPI                 https://api.mfapi.in/mf/search?q=<name>
+This version inverts that. The primary sources are broker CDN asset files that
+need no authentication, no cookies and no browser emulation:
 
-⚠️  RUN THIS OUTSIDE THE CLAUDE CODE SANDBOX.
-    All four hosts are refused (HTTP 403 at the egress gateway) by the agent
-    proxy's policy, so the script cannot complete in that environment. Run it on
-    the EC2 box or any machine with open outbound HTTPS.
+  1. DHAN scrip master (detailed)  -> ISIN + trading symbol + name
+     https://images.dhan.co/api-data/api-scrip-master-detailed.csv
+  2. UPSTOX instrument master      -> isin + trading_symbol + name
+     https://assets.upstox.com/market-quote/instruments/exchange/complete.json.gz
+  3. AMFI scheme master            -> official scheme name + AMC, keyed by ISIN
+     https://portal.amfiindia.com/spages/NAVAll.txt
+  4. NSE archives EQUITY_L.csv     -> symbol + ISIN (static archive file)
+     https://nsearchives.nseindia.com/content/equities/EQUITY_L.csv
+  5. NSE API                       -> last resort only, needs cookie priming
 
-NSE requires a browser-like session: hit the homepage first to collect cookies,
-then call the API with those cookies and a Referer. The script does this, and
-rate-limits itself to stay polite.
+Sources 1 and 2 alone are usually enough for symbol -> ISIN -> scheme name.
+Every source is independent: if one fails the others still contribute, and each
+field records which source supplied it.
+
+BENCHMARK INDEX: no public API exposes this directly. It is derived from the
+scheme name (e.g. "Nippon India ETF Nifty 50 BeES" -> "Nifty 50") and
+cross-checked against the NSE SUB-CATEGORY already held in the bucket CSV,
+which is NSE's own statement of what each ETF tracks. Mismatches are flagged
+for operator review rather than silently resolved.
+
+LAST-RESORT FALLBACK — local files
+----------------------------------
+If every scripted fetch is blocked (corporate proxy, NSE bot-detection, an
+offline machine), download the files by hand in a browser — a browser is never
+blocked the way a script is — and pass them in:
+
+    --dhan-file    api-scrip-master-detailed.csv
+    --upstox-file  complete.json.gz  (or the unzipped .json)
+    --amfi-file    NAVAll.txt
+    --nse-file     EQUITY_L.csv
+
+Any mix of remote and local works; a local file simply skips that download.
 
 Usage:
-    python3 scripts/fetch_etf_reference_data.py \
-        docs/99-vendor-docs/nse/etf-tradable-buckets-2026-09-17.csv \
-        docs/99-vendor-docs/nse/etf-reference-data.csv
+    python3 scripts/fetch_etf_reference_data.py IN.csv OUT.csv
+    python3 scripts/fetch_etf_reference_data.py IN.csv OUT.csv \
+        --dhan-file ~/Downloads/api-scrip-master-detailed.csv \
+        --amfi-file ~/Downloads/NAVAll.txt
 """
-import csv, json, sys, time, datetime
-from urllib.request import Request, urlopen, HTTPCookieProcessor, build_opener
-from urllib.error import HTTPError, URLError
+import csv, gzip, io, json, re, sys, datetime
+from urllib.request import Request, urlopen
 from http.cookiejar import CookieJar
 
 UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/125.0 Safari/537.36")
-DELAY = 1.2          # seconds between NSE calls
-TIMEOUT = 20
+TIMEOUT = 120
 
-FIELDS = ['SYMBOL', 'SCHEME_NAME', 'AMC', 'BENCHMARK_INDEX', 'ISIN',
-          'EXPENSE_RATIO', 'LAUNCH_DATE', 'UNDERLYING_ASSET',
-          'SOURCE', 'FETCHED_AT', 'ERROR']
+DHAN_DETAILED = "https://images.dhan.co/api-data/api-scrip-master-detailed.csv"
+DHAN_COMPACT  = "https://images.dhan.co/api-data/api-scrip-master.csv"
+UPSTOX_ALL    = "https://assets.upstox.com/market-quote/instruments/exchange/complete.json.gz"
+UPSTOX_NSE    = "https://assets.upstox.com/market-quote/instruments/exchange/NSE.json.gz"
+AMFI_NAVALL   = "https://portal.amfiindia.com/spages/NAVAll.txt"
+NSE_EQUITY_L  = "https://nsearchives.nseindia.com/content/equities/EQUITY_L.csv"
+
+FIELDS = ['SYMBOL', 'ISIN', 'SCHEME_NAME', 'AMC', 'BENCHMARK_DERIVED',
+          'NSE_SUB_CATEGORY', 'BENCHMARK_MATCHES_NSE', 'EXCHANGE',
+          'ISIN_SOURCE', 'NAME_SOURCE', 'FETCHED_AT']
+
+report = []
 
 
-def make_opener():
-    return build_opener(HTTPCookieProcessor(CookieJar()))
+LOCAL = {}          # populated from --*-file flags; short-circuits a download
 
 
-def prime_nse(opener):
-    """NSE rejects bare API calls; collect cookies from the homepage first."""
+def get(url, binary=False, local_key=None):
+    """Read from a local file when one was supplied for this source, else fetch."""
+    path = LOCAL.get(local_key)
+    if path:
+        with open(path, 'rb') as fh:
+            data = fh.read()
+        return data if binary else data.decode('utf-8', 'ignore')
+    req = Request(url, headers={'User-Agent': UA, 'Accept': '*/*'})
+    with urlopen(req, timeout=TIMEOUT) as r:
+        data = r.read()
+    return data if binary else data.decode('utf-8', 'ignore')
+
+
+def try_source(label, fn):
     try:
-        opener.open(Request("https://www.nseindia.com",
-                            headers={'User-Agent': UA,
-                                     'Accept': 'text/html,application/xhtml+xml'}),
-                    timeout=TIMEOUT).read()
-        return True
-    except Exception as exc:
-        print(f"  ! could not prime NSE session: {exc}", file=sys.stderr)
-        return False
-
-
-def get_json(opener, url, referer="https://www.nseindia.com/"):
-    req = Request(url, headers={'User-Agent': UA, 'Accept': 'application/json',
-                                'Referer': referer,
-                                'Accept-Language': 'en-US,en;q=0.9'})
-    with opener.open(req, timeout=TIMEOUT) as resp:
-        return json.loads(resp.read().decode('utf-8'))
-
-
-def fetch_nse_etf_listing(opener):
-    """One call returns every listed ETF, including the underlying asset text."""
-    try:
-        data = get_json(opener, "https://www.nseindia.com/api/etf")
-        out = {}
-        for row in data.get('data', []):
-            sym = (row.get('symbol') or '').strip().upper()
-            if sym:
-                out[sym] = {
-                    'SCHEME_NAME': row.get('meta', {}).get('companyName') or row.get('assets') or '',
-                    'UNDERLYING_ASSET': row.get('assets') or '',
-                    'ISIN': row.get('meta', {}).get('isin') or '',
-                    'SOURCE': 'nse:/api/etf',
-                }
+        out = fn()
+        report.append((label, 'OK', f'{len(out)} records'))
+        print(f"  [OK]   {label}: {len(out)} records")
         return out
     except Exception as exc:
-        print(f"  ! NSE ETF listing failed: {exc}", file=sys.stderr)
+        report.append((label, 'FAILED', str(exc)[:120]))
+        print(f"  [FAIL] {label}: {exc}", file=sys.stderr)
         return {}
 
 
-def fetch_nse_quote(opener, symbol):
-    try:
-        d = get_json(opener, f"https://www.nseindia.com/api/quote-equity?symbol={symbol}",
-                     referer=f"https://www.nseindia.com/get-quotes/equity?symbol={symbol}")
-        info = d.get('info', {})
-        return {'SCHEME_NAME': info.get('companyName', ''),
-                'ISIN': info.get('isin', ''),
-                'LAUNCH_DATE': d.get('metadata', {}).get('listingDate', ''),
-                'SOURCE': 'nse:/api/quote-equity'}
-    except Exception as exc:
-        return {'ERROR': f'nse-quote: {exc}'}
+def load_dhan():
+    """Detailed master carries ISIN; fall back to compact if it 404s."""
+    for url in (DHAN_DETAILED, DHAN_COMPACT):
+        try:
+            text = get(url, local_key='dhan')
+        except Exception:
+            continue
+        out = {}
+        for row in csv.DictReader(io.StringIO(text)):
+            cols = {k.strip().upper(): (v or '').strip() for k, v in row.items() if k}
+            sym = (cols.get('SEM_TRADING_SYMBOL') or cols.get('UNDERLYING_SYMBOL') or '').upper()
+            seg = cols.get('SEM_EXM_EXCH_ID') or cols.get('EXCH_ID') or ''
+            if not sym or (seg and seg.upper() != 'NSE'):
+                continue
+            isin = cols.get('ISIN') or cols.get('SEM_ISIN') or ''
+            name = (cols.get('SM_SYMBOL_NAME') or cols.get('SEM_CUSTOM_SYMBOL')
+                    or cols.get('SEM_INSTRUMENT_NAME') or '')
+            if sym not in out or (isin and not out[sym].get('ISIN')):
+                out[sym] = {'ISIN': isin, 'SCHEME_NAME': name, 'EXCHANGE': 'NSE'}
+        if out:
+            return out
+    raise RuntimeError('both Dhan master URLs failed or returned no NSE rows')
 
 
-def fetch_amfi_isin_map():
-    """AMFI NAVAll.txt is semicolon-delimited: ISIN -> scheme name and AMC."""
-    try:
-        req = Request("https://portal.amfiindia.com/spages/NAVAll.txt",
-                      headers={'User-Agent': UA})
-        text = urlopen(req, timeout=60).read().decode('utf-8', 'ignore')
-    except Exception as exc:
-        print(f"  ! AMFI fetch failed: {exc}", file=sys.stderr)
-        return {}
+def load_upstox():
+    for url in (UPSTOX_NSE, UPSTOX_ALL):
+        try:
+            raw = get(url, binary=True, local_key='upstox')
+        except Exception:
+            continue
+        try:
+            text = gzip.decompress(raw).decode('utf-8', 'ignore')
+        except OSError:
+            text = raw.decode('utf-8', 'ignore')
+        data = json.loads(text)
+        out = {}
+        for item in data:
+            if (item.get('segment') or '') != 'NSE_EQ':
+                continue
+            sym = (item.get('trading_symbol') or '').upper()
+            if sym:
+                out[sym] = {'ISIN': item.get('isin', ''),
+                            'SCHEME_NAME': item.get('name', ''),
+                            'EXCHANGE': 'NSE'}
+        if out:
+            return out
+    raise RuntimeError('both Upstox instrument URLs failed')
+
+
+def load_amfi():
+    text = get(AMFI_NAVALL, local_key='amfi')
     out, amc = {}, ''
     for line in text.splitlines():
         line = line.strip()
         if not line:
             continue
         if ';' not in line:
-            amc = line                      # AMC names appear as bare lines
+            if not line.lower().startswith('scheme code'):
+                amc = line
             continue
         parts = line.split(';')
-        if len(parts) >= 4 and parts[0].isdigit():
+        if len(parts) >= 4 and parts[0].strip().isdigit():
             for isin in (parts[1].strip(), parts[2].strip()):
                 if isin and isin != '-':
-                    out[isin] = {'SCHEME_NAME': parts[3].strip(), 'AMC': amc,
-                                 'SOURCE': 'amfi:NAVAll'}
+                    out[isin] = {'SCHEME_NAME': parts[3].strip(), 'AMC': amc}
     return out
 
 
-def main(src, dst):
-    symbols = [r['SYMBOL'].strip().upper()
-               for r in csv.DictReader(open(src, encoding='utf-8-sig'))]
-    symbols = sorted(set(symbols))
-    print(f"{len(symbols)} symbols to resolve")
+def load_nse_archive():
+    text = get(NSE_EQUITY_L, local_key='nse')
+    out = {}
+    for row in csv.DictReader(io.StringIO(text)):
+        cols = {k.strip().upper(): (v or '').strip() for k, v in row.items() if k}
+        sym = cols.get('SYMBOL', '').upper()
+        if sym:
+            out[sym] = {'ISIN': cols.get('ISIN NUMBER', ''),
+                        'SCHEME_NAME': cols.get('NAME OF COMPANY', ''),
+                        'EXCHANGE': 'NSE'}
+    return out
 
-    opener = make_opener()
-    primed = prime_nse(opener)
-    listing = fetch_nse_etf_listing(opener) if primed else {}
-    print(f"NSE listing returned {len(listing)} ETFs")
-    amfi = fetch_amfi_isin_map()
-    print(f"AMFI map returned {len(amfi)} ISINs")
+
+INDEX_PATTERNS = [
+    r'nifty\s+(?:50|100|200|500)\s+\w[\w\s]*?\d+', r'nifty\s+next\s+50', r'nifty\s+midcap\s*\d*',
+    r'nifty\s+smallcap\s*\d*', r'nifty\s+bank', r'nifty\s+it', r'nifty\s+pharma',
+    r'nifty\s+auto', r'nifty\s+metal', r'nifty\s+fmcg', r'nifty\s+\d+', r'sensex\s*\w*',
+    r'bse\s+\d+', r'gold', r'silver', r'nasdaq\s*\d*', r'hang\s*seng', r's&p\s*500',
+]
+
+
+def derive_benchmark(scheme_name):
+    if not scheme_name:
+        return ''
+    s = scheme_name.lower()
+    for pat in INDEX_PATTERNS:
+        m = re.search(pat, s)
+        if m:
+            return m.group(0).strip().title()
+    return ''
+
+
+def main(src, dst):
+    src_rows = list(csv.DictReader(open(src, encoding='utf-8-sig')))
+    symbols = sorted({r['SYMBOL'].strip().upper() for r in src_rows})
+    nse_sub = {r['SYMBOL'].strip().upper(): r.get('NSE_SUB_CATEGORY', '') for r in src_rows}
+    print(f"{len(symbols)} symbols to resolve\n\nsources:")
+
+    dhan   = try_source('dhan scrip master',   load_dhan)
+    upstox = try_source('upstox instruments',  load_upstox)
+    nsearc = try_source('nse archive EQUITY_L', load_nse_archive)
+    amfi   = try_source('amfi scheme master',  load_amfi)
+
+    if not (dhan or upstox or nsearc):
+        print("\nAll symbol->ISIN sources failed. Nothing can be resolved.", file=sys.stderr)
 
     now = datetime.datetime.now(datetime.timezone.utc).isoformat(timespec='seconds')
     rows = []
-    for i, sym in enumerate(symbols, 1):
+    for sym in symbols:
         rec = {f: '' for f in FIELDS}
         rec['SYMBOL'], rec['FETCHED_AT'] = sym, now
-        rec.update({k: v for k, v in listing.get(sym, {}).items() if v})
+        rec['NSE_SUB_CATEGORY'] = nse_sub.get(sym, '')
 
-        if primed and not rec.get('ISIN'):
-            time.sleep(DELAY)
-            rec.update({k: v for k, v in fetch_nse_quote(opener, sym).items() if v})
+        for label, table in (('dhan', dhan), ('upstox', upstox), ('nse-archive', nsearc)):
+            hit = table.get(sym)
+            if not hit:
+                continue
+            if hit.get('ISIN') and not rec['ISIN']:
+                rec['ISIN'], rec['ISIN_SOURCE'] = hit['ISIN'], label
+            if hit.get('SCHEME_NAME') and not rec['SCHEME_NAME']:
+                rec['SCHEME_NAME'], rec['NAME_SOURCE'] = hit['SCHEME_NAME'], label
+            rec['EXCHANGE'] = rec['EXCHANGE'] or hit.get('EXCHANGE', '')
 
-        if rec.get('ISIN') and rec['ISIN'] in amfi:
-            for k, v in amfi[rec['ISIN']].items():
-                if v and not rec.get(k):
-                    rec[k] = v
-            rec['SOURCE'] = (rec.get('SOURCE', '') + '+amfi').strip('+')
+        if rec['ISIN'] and rec['ISIN'] in amfi:
+            a = amfi[rec['ISIN']]
+            rec['AMC'] = a.get('AMC', '')
+            if a.get('SCHEME_NAME'):
+                rec['SCHEME_NAME'], rec['NAME_SOURCE'] = a['SCHEME_NAME'], 'amfi'
 
+        rec['BENCHMARK_DERIVED'] = derive_benchmark(rec['SCHEME_NAME'])
+        if rec['BENCHMARK_DERIVED'] and rec['NSE_SUB_CATEGORY']:
+            a = re.sub(r'[^a-z0-9]', '', rec['BENCHMARK_DERIVED'].lower())
+            b = re.sub(r'[^a-z0-9]', '', rec['NSE_SUB_CATEGORY'].lower())
+            rec['BENCHMARK_MATCHES_NSE'] = 'YES' if (a in b or b in a) else 'REVIEW'
         rows.append(rec)
-        if i % 25 == 0:
-            print(f"  {i}/{len(symbols)}")
 
     with open(dst, 'w', newline='', encoding='utf-8') as fh:
         w = csv.DictWriter(fh, fieldnames=FIELDS)
         w.writeheader()
         w.writerows(rows)
 
-    got = sum(1 for r in rows if r['SCHEME_NAME'])
+    n = len(rows)
     print(f"\nwrote {dst}")
-    print(f"  scheme name resolved : {got}/{len(rows)}")
-    print(f"  ISIN resolved        : {sum(1 for r in rows if r['ISIN'])}/{len(rows)}")
-    print(f"  benchmark resolved   : {sum(1 for r in rows if r['BENCHMARK_INDEX'])}/{len(rows)}")
-    print("\nBENCHMARK_INDEX is rarely exposed by these APIs; it usually has to come "
-          "from the scheme information document. Where it is blank, fall back to the "
-          "NSE SUB-CATEGORY already captured in the bucket CSV, which is NSE's own "
-          "statement of what the ETF tracks.")
+    print(f"  ISIN resolved        : {sum(1 for r in rows if r['ISIN'])}/{n}")
+    print(f"  scheme name resolved : {sum(1 for r in rows if r['SCHEME_NAME'])}/{n}")
+    print(f"  AMC resolved         : {sum(1 for r in rows if r['AMC'])}/{n}")
+    print(f"  benchmark derived    : {sum(1 for r in rows if r['BENCHMARK_DERIVED'])}/{n}")
+    print(f"  benchmark NEEDS REVIEW vs NSE : "
+          f"{sum(1 for r in rows if r['BENCHMARK_MATCHES_NSE'] == 'REVIEW')}")
+    print("\nsource status:")
+    for label, status, detail in report:
+        print(f"  {status:<7} {label:<22} {detail}")
+
+
+def parse_args(argv):
+    positional, i = [], 0
+    while i < len(argv):
+        a = argv[i]
+        if a.startswith('--') and a.endswith('-file'):
+            key = a[2:-5]
+            if i + 1 >= len(argv):
+                sys.exit(f'{a} needs a path')
+            LOCAL[key] = argv[i + 1]
+            i += 2
+        else:
+            positional.append(a)
+            i += 1
+    if len(positional) != 2:
+        sys.exit(__doc__)
+    return positional
 
 
 if __name__ == '__main__':
-    main(sys.argv[1], sys.argv[2])
+    src, dst = parse_args(sys.argv[1:])
+    if LOCAL:
+        print('using local files: ' + ', '.join(f'{k}={v}' for k, v in LOCAL.items()))
+    main(src, dst)

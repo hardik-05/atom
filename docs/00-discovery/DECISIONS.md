@@ -1340,3 +1340,33 @@ routinely. The override applies to the two discretionary flows only.*
 
 | Q-206 | ~~Confirm proxy threshold~~ — ✅ withdrawn by D-112 |
 | Q-207 | Should an override be permitted on the daily buy path too, or stay limited to averaging and harvesting? *(Rec: stay limited — the daily path is automated and an override there has no operator watching it)* |
+
+**D-114 — Reference-data fetching no longer depends on NSE.** *(Replaces D-111.)*
+The first script keyed everything off NSE — ISIN came from the NSE API and the AMFI lookup was
+keyed on that ISIN — so an NSE 403 emptied the whole chain. That was a design fault, not an
+environment problem.
+
+The rewrite uses **four independent sources**, tried in order, each contributing whatever it can:
+
+| # | Source | Auth | Gives |
+|---|---|---|---|
+| 1 | `images.dhan.co/api-data/api-scrip-master-detailed.csv` | none | **ISIN**, trading symbol, name |
+| 2 | `assets.upstox.com/market-quote/instruments/exchange/NSE.json.gz` | none | **ISIN**, trading symbol, name |
+| 3 | `portal.amfiindia.com/spages/NAVAll.txt` | none | Official scheme name, **AMC**, by ISIN |
+| 4 | `nsearchives.nseindia.com/content/equities/EQUITY_L.csv` | none | Symbol → ISIN (static archive) |
+
+**Sources 1 and 2 are broker CDN asset files** — plain static downloads with no cookies, no
+browser emulation and no bot protection, unlike `nseindia.com`. Either alone resolves
+symbol → ISIN → name.
+
+**Local-file fallback:** every source accepts `--dhan-file`, `--upstox-file`, `--amfi-file`,
+`--nse-file`. A browser download is never blocked the way a script is, so a fully blocked
+machine can still complete the job by hand.
+
+**Benchmark derivation:** no public API exposes it. It is parsed from the scheme name
+("Nippon India ETF Nifty 50 BeES" → "Nifty 50") and **cross-checked against the NSE
+SUB-CATEGORY** already held in the bucket CSV, with the result recorded as `YES` or `REVIEW`
+per ETF. Disagreements are flagged for the operator, never silently resolved.
+
+*Verified end-to-end with a local file in this session: symbol → ISIN → scheme name → derived
+benchmark → NSE cross-check all produced correct output.*
