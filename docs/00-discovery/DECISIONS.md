@@ -1214,3 +1214,78 @@ visibly a compromise rather than silently equivalent.
 fresh export reproduces the classification exactly, and a new listing is one re-run away.
 
 | Q-203 | Revisit D-105 — factor-by-cap splitting removes proxies for 10 of 18 liquid factor ETFs. Keep, or fall back to factor-type only for tier 2? |
+
+---
+
+## Round 15 — 2026-09-20
+
+**D-107 — Final tradable bucket list excludes DEBT and HYBRID.**
+`docs/99-vendor-docs/nse/etf-tradable-buckets-2026-09-17.csv` — **311 ETFs** (39 removed: 38
+DEBT + 1 HYBRID), of which **127 are liquid**: INDEX 90/29 · SECTOR 113/44 · FACTOR 57/18 ·
+COMMODITY 45/31 · GLOBAL 6/5. This is the final list.
+
+**D-108 — Bucket management is operator-governed with an unassigned pool.** Three statuses —
+`AUTO`, `MANUAL`, `UNASSIGNED`. The classifier runs **on demand only** (expected every 6–12
+months), never on a schedule, and produces a **change set** that is reviewed item by item;
+accept applies it, reject sends the ETF to the **unassigned pool** rather than reverting it.
+Manual add/remove/move is available at any time.
+
+> 🔴 **Manual assignments are never overwritten by a classifier run.** An operator correction
+> must not be silently undone six months later — the run would look successful while quietly
+> reintroducing a harvesting bug. Where the classifier disagrees with a manual assignment it
+> shows an informational note, never a change to accept.
+
+Removing an ETF to UNASSIGNED never strands a position: sells continue from our own lot
+records, and only buying and proxy matching stop. Full spec in
+[`../04-strategy/BUCKET-MANAGEMENT.md`](../04-strategy/BUCKET-MANAGEMENT.md).
+
+**D-109 — NEXT_50 stays separate from LARGECAP_50.** (Q-200 closed, with the operator's
+reasoning recorded: *"Next 50 has stocks from 51 to 100, but largecap may have few holdings
+which are in 1–50."*) The constituent sets differ, so they are not interchangeable exposures.
+
+### 🔴 D-110 — Harvest proxies get their own, lower volume threshold
+
+Investigating the 13 liquid ETFs with no proxy showed that **10 of them are not orphans at
+all** — peers tracking the *same exact index* exist and are simply below the 1-lakh volume
+filter. Examples: FMCGIETF's peer FMCGADD (37k), NV20IETF's peer NV20 (46k), MOMENTUM50's peer
+GROWWMOM50 (71k), GROWWNET's peer INTERNET (96k — **short of the threshold by 4%**).
+
+**The liquidity requirement for a proxy should not equal the requirement for a daily-traded
+holding.** A harvest proxy is bought once and held; it does not need the turnover that a
+repeatedly-traded position does. So `harvest_proxy_volume_threshold` becomes its own config
+value, per (trading account × category), with **no default** (D-038).
+
+Measured effect, holding threshold fixed at 100,000:
+
+| Proxy threshold | Tier-1 | Tier-2 | No proxy |
+|---|---|---|---|
+| 100,000 *(as before)* | 92 | 22 | **13** |
+| 50,000 | 97 | 21 | 9 |
+| **20,000** | **101** | **20** | **6** |
+| 5,000 | 105 | 16 | 6 |
+| none | 108 | 16 | 3 |
+
+**Suggested starting value: 20,000 units** — it recovers 7 of the 13 orphans and pushes tier-1
+coverage from 92 to 101, while still excluding genuinely untradeable instruments.
+
+**Only three ETFs are true orphans at any threshold** — ALPHAETF (Nifty 200 Alpha 30),
+ALPL30IETF (Nifty Alpha Low-Volatility 30) and FLEXIADD (Nifty 500 Flexicap Quality 30) — each
+the sole tracker of its index. Nothing can be done for those; the harvest screen states it.
+
+**D-111 — Reference-data fetching is scripted but cannot run in this environment.**
+`scripts/fetch_etf_reference_data.py` resolves scheme name, AMC, benchmark, ISIN, expense ratio
+and launch date from the NSE ETF listing, NSE quotes, the AMFI scheme master and MFAPI, with
+per-field source and timestamp. **All four hosts are refused (HTTP 403) by this session's egress
+policy**, so it must be run on the EC2 box or any machine with open outbound HTTPS. It degrades
+gracefully — it was executed here and produced a complete, empty-valued file rather than
+failing.
+
+> **Note on benchmarks:** NSE's `SUB-CATEGORY` column already *is* the benchmark index for most
+> ETFs — it is NSE's own statement of what each ETF tracks, and it is what the current tier-1
+> bucketing uses. External sources will mostly corroborate it; their value is in resolving the
+> handful of coarse or ambiguous entries, and in supplying expense ratio and launch date, which
+> NSE does not publish here.
+
+| Q-204 | Block a classifier run while a previous change set has undecided items? |
+| Q-205 | Show unassigned ETFs on Daily Status greyed, or hide them? |
+| Q-206 | Confirm `harvest_proxy_volume_threshold` starting value of 20,000 units |
