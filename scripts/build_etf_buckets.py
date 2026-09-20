@@ -11,7 +11,12 @@ Produces a three-tier classification used for tax-loss-harvesting proxy matching
 Classification is evaluated SECTOR-FIRST, then FACTOR, then INDEX (D-101): keyword
 ordering is the source of the mis-classifications documented in SECTOR-BUCKETS.md §4.
 
-Usage:  python3 scripts/build_etf_buckets.py <input.csv> <output.csv>
+Usage:  python3 scripts/build_etf_buckets.py <nse_export.csv> <output.csv> [reference.csv]
+
+Passing the reference CSV from fetch_etf_reference_data.py lets the classifier use
+scheme names to split buckets NSE's SUB-CATEGORY is too coarse to separate — notably
+GLOBAL, where NSE labels six ETFs 'GLOBAL INDICES' though they track five different
+indices across two markets (D-115).
 """
 import csv, re, sys, collections
 
@@ -85,19 +90,49 @@ INDEX_SEGMENTS = [
 ]
 
 
+SCHEME_NAMES = {}      # symbol -> scheme name, loaded from the reference CSV
+
+
+def load_scheme_names(path):
+    """Optional: reference data from fetch_etf_reference_data.py, used to split
+    buckets that NSE's SUB-CATEGORY is too coarse to separate (D-115)."""
+    import os
+    if not path or not os.path.exists(path):
+        return {}
+    out = {}
+    for r in csv.DictReader(open(path, encoding='utf-8-sig')):
+        if r.get('SYMBOL') and r.get('SCHEME_NAME'):
+            out[r['SYMBOL'].strip().upper()] = r['SCHEME_NAME']
+    return out
+
+
 def _match(text, keys):
     return any(k in text for k in keys)
 
 
-def normalise_index(sub):
+GLOBAL_INDEX_PATTERNS = [
+    ('NASDAQ 100', ['nasdaq 100']), ('NASDAQ Q50', ['nasdaq q50']),
+    ('S&P 500 TOP 50', ['s&p 500 top 50']), ('S&P 500', ['s&p 500']),
+    ('NYSE FANG+', ['fang']), ('HANG SENG TECH', ['hang seng tech']),
+    ('HANG SENG', ['hang seng']),
+]
+
+
+def normalise_index(sub, symbol=''):
     """Tier 1: the exact underlying index, normalised so naming variants collapse."""
+    name = SCHEME_NAMES.get((symbol or '').strip().upper(), '')
+    if name:
+        n = name.lower()
+        for label, keys in GLOBAL_INDEX_PATTERNS:
+            if any(k in n for k in keys):
+                return label
     s = re.sub(r'\s+', ' ', (sub or '').strip().lower())
     s = s.replace(' etf', '')
     s = re.sub(r'^(nifty|bse)\s+', '', s)
     return s.strip().upper()
 
 
-def classify(category, sub):
+def classify(category, sub, symbol=''):
     """Return (bucket, tier2_group, note)."""
     cat = (category or '').strip().upper()
     low = ' ' + re.sub(r'\s+', ' ', (sub or '').strip().lower()) + ' '
@@ -109,7 +144,18 @@ def classify(category, sub):
     if cat == 'COMMODITY':
         return 'COMMODITY', (sub or '').strip().upper(), ''
     if cat == 'GLOBAL INDICES':
-        return 'GLOBAL', 'GLOBAL_INDICES', 'structural NAV premium — see NAV-PREMIUM-CHECK.md'
+        # D-115: NSE labels all global ETFs 'GLOBAL INDICES', but scheme names show
+        # they track five different indices across two markets. Grouping them would
+        # permit swapping US tech exposure for Hong Kong exposure.
+        name = SCHEME_NAMES.get((symbol or '').strip().upper(), '') or low
+        n = name.lower()
+        if 'hang seng' in n or 'hangseng' in n or 'hkg' in n:
+            grp = 'HK_EQUITY'
+        elif any(k in n for k in ('nasdaq', 's&p 500', 'sp 500', 'fang', 'nyse')):
+            grp = 'US_EQUITY'
+        else:
+            grp = 'GLOBAL_OTHER'
+        return 'GLOBAL', grp, 'structural NAV premium — see NAV-PREMIUM-CHECK.md'
 
     # EQUITY: sector first (D-101), then factor, then index
     for name, keys in SECTOR_GROUPS:
@@ -138,11 +184,15 @@ def to_number(s):
         return None
 
 
-def main(src, dst):
+def main(src, dst, reference=None):
+    global SCHEME_NAMES
+    SCHEME_NAMES = load_scheme_names(reference)
+    if SCHEME_NAMES:
+        print(f"loaded {len(SCHEME_NAMES)} scheme names from {reference}")
     rows = list(csv.DictReader(open(src, encoding='utf-8-sig')))
     enriched = []
     for r in rows:
-        bucket, group, note = classify(r['CATEGORY'], r['SUB-CATEGORY'])
+        bucket, group, note = classify(r['CATEGORY'], r['SUB-CATEGORY'], r['SYMBOL'])
         vol = to_number(r['VOLUME']) or 0
         enriched.append({
             'SYMBOL': r['SYMBOL'],
@@ -150,7 +200,7 @@ def main(src, dst):
             'NSE_SUB_CATEGORY': r['SUB-CATEGORY'],
             'ATOM_BUCKET': bucket,
             'TIER2_GROUP': group,
-            'TIER1_INDEX': normalise_index(r['SUB-CATEGORY']),
+            'TIER1_INDEX': normalise_index(r['SUB-CATEGORY'], r['SYMBOL']),
             'VOLUME_INFO_ONLY': int(vol),
             'LIQUID_INFO_ONLY': 'YES' if vol > VOLUME_THRESHOLD else 'NO',
             'ASSIGNMENT_STATUS': 'AUTO',
@@ -196,4 +246,5 @@ def main(src, dst):
 
 
 if __name__ == '__main__':
-    main(sys.argv[1], sys.argv[2])
+    main(sys.argv[1], sys.argv[2],
+         sys.argv[3] if len(sys.argv) > 3 else None)

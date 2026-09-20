@@ -1,0 +1,312 @@
+SYMBOL,ISIN,SCHEME_NAME,AMC,BENCHMARK_DERIVED,NSE_SUB_CATEGORY,BENCHMARK_MATCHES_NSE,EXCHANGE,ISIN_SOURCE,NAME_SOURCE,FETCHED_AT
+ABSL10BANK,INF209KC1670,Aditya Birla Sun Life BSE Top 10 Banks ETF,Aditya Birla Sun Life Mutual Fund,,BSE Top 10 Banks,,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+ABSLBANETF,INF209KB17D5,ADITYA BIRLA SUN LIFE NIFTY BANK ETF,Aditya Birla Sun Life Mutual Fund,Nifty Bank,Nifty Bank,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+ABSLMSCIN,INF209KC1662,Aditya Birla Sun Life MSCI India ETF,Aditya Birla Sun Life Mutual Fund,,MSCI India,,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+ABSLNN50ET,INF209KB16D7,Aditya Birla Sun Life Nifty Next 50 ETF,Aditya Birla Sun Life Mutual Fund,Nifty Next 50,Nifty Next 50,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+ABSLPSE,INF209KB19Z4,Aditya Birla Sun Life Nifty PSE ETF,Aditya Birla Sun Life Mutual Fund,,Nifty PSE,,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+ALPHA,INF174KA1IA5,Kotak Nifty Alpha 50 ETF,Kotak Mahindra Mutual Fund,,NIFTY Alpha 50,,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+ALPHAETF,INF769K01KU7,Mirae Asset Nifty 200 Alpha 30 ETF,Mirae Asset Mutual Fund,Nifty 200 Alpha 30,Nifty 200 Alpha 30,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+ALPL30IETF,INF109KC17V7,ICICI Prudential Nifty Alpha Low- Volatility 30 ETF,ICICI Prudential Mutual Fund,,Nifty Alpha Low-Volatility 30,,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+AONEGOLD,INF1J2R01114,ANGEL ONE GOLD ETF,Angel One Mutual Fund,Gold,GOLD,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+AONENIFTY,INF1J2R01064,ANGEL ONE NIFTY 50 ETF,Angel One Mutual Fund,Nifty 50,Nifty 50,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+AONESILVER,INF1J2R01171,ANGEL ONE SILVER ETF,Angel One Mutual Fund,Silver,SILVER,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+AONETMMQ50,INF1J2R01148,ANGEL ONE NIFTY TOTAL MARKET MOMENTUM QUALITY 50 ETF,Angel One Mutual Fund,,Nifty Total Market Momentum Quality 50,,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+AONETOTAL,INF1J2R01015,ANGEL ONE NIFTY TOTAL MARKET ETF,Angel One Mutual Fund,,Nifty Total Market,,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+AUTOBEES,INF204KC1337,Nippon India Nifty Auto ETF,Nippon India Mutual Fund,Nifty Auto,Nifty Auto,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+AUTOIETF,INF109KC10V2,ICICI Prudential Nifty Auto ETF,ICICI Prudential Mutual Fund,Nifty Auto,Nifty Auto,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+BANK10ADD,INF740KA1YH2,DSP BSE Top 10 Banks ETF,DSP Mutual Fund,,BSE Top 10 Banks,,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+BANK10BETF,INF0QA701CI0,Bajaj Finserv BSE Top 10 Banks ETF,Bajaj Finserv Mutual Fund,,BSE Top 10 Banks,,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+BANKADD,INF740KA1RX3,DSP Nifty Bank ETF,DSP Mutual Fund,Nifty Bank,Nifty Bank,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+BANKBEES,INF204KB15I9,Nippon India ETF Nifty Bank BeES,Nippon India Mutual Fund,Nifty Bank,Nifty Bank,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+BANKBETA,INF789F1AUV1,UTI Nifty Bank ETF,UTI Mutual Fund,Nifty Bank,Nifty Bank,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+BANKBETF,INF0QA701714,Bajaj Finserv Nifty Bank ETF,Bajaj Finserv Mutual Fund,Nifty Bank,Nifty Bank,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+BANKETF,INF769K01KR3,Mirae Asset Nifty Bank ETF,Mirae Asset Mutual Fund,Nifty Bank,Nifty Bank,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+BANKIETF,INF109KC15I8,ICICI Prudential Nifty Bank ETF,ICICI Prudential Mutual Fund,Nifty Bank,Nifty Bank,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+BANKNIFTY1,INF174KA1ZB7,Kotak Nifty Bank ETF,Kotak Mahindra Mutual Fund,Nifty Bank,Nifty Bank,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+BANKPSU,INF769K01LZ4,Mirae Asset Nifty PSU Bank ETF,Mirae Asset Mutual Fund,,Nifty PSU Bank,,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+BBNPNBETF,INF251K01TL6,Baroda BNP Paribas Nifty Bank ETF,Baroda BNP Paribas Mutual Fund,Nifty Bank,NIFTY Bank,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+BBNPPGOLD,INF251K01SU9,Baroda BNP Paribas Gold ETF,Baroda BNP Paribas Mutual Fund,Gold,GOLD,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+BFSI,INF769K01HI8,Mirae Asset Nifty Financial Services ETF,Mirae Asset Mutual Fund,,Nifty Financial Services,,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+BNKETFAXIS,INF846K01X63,Axis NIFTY Bank ETF,Axis Mutual Fund,Nifty Bank,Nifty Bank,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+BSE500IETF,INF109KC1V59,ICICI Prudential BSE 500 ETF,ICICI Prudential Mutual Fund,Bse 500,BSE 500,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+BSLGOLDETF,INF209KB18D3,Aditya Birla Sun Life Gold ETF,Aditya Birla Sun Life Mutual Fund,Gold,GOLD,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+BSLNIFTY,INF209KB19D1,Aditya Birla Sun Life Nifty 50 ETF,Aditya Birla Sun Life Mutual Fund,Nifty 50,Nifty 50,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+BSLSENETFG,INF209KB10E8,Aditya Birla Sun Life BSE Sensex ETF,Aditya Birla Sun Life Mutual Fund,Sensex Etf,BSE SENSEX,REVIEW,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+CEMNTGROWW,INF666M01PH7,Groww Nifty Cements ETF,Groww Mutual Fund,,Nifty Cements,,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+CHEMICAL,INF174KA1XV0,Kotak Nifty Chemicals ETF,Kotak Mahindra Mutual Fund,,Nifty Chemicals,,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+CHOICEGOLD,INF2KCX01012,Choice Gold ETF,Choice Mutual Fund,Gold,GOLD,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+COMMOIETF,INF109KC19O8,ICICI Prudential Nifty Commodities ETF,ICICI Prudential Mutual Fund,,Nifty Commodities,,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+CONS,INF174KA1ZF8,Kotak Nifty India Consumption ETF,Kotak Mahindra Mutual Fund,,Nifty India Consumption,,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+CONSUMAXIS,INF846K016C7,Axis NIFTY India Consumption ETF,Axis Mutual Fund,,Nifty India Consumption,,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+CONSUMBEES,INF204KA1LD7,Nippon India ETF Nifty India Consumption,Nippon India Mutual Fund,,Nifty India Consumption,,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+CONSUMER,INF769K01NS5,Mirae Asset Nifty India New Age Consumption ETF,Mirae Asset Mutual Fund,,Nifty India New Age Consumption,,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+CONSUMIETF,INF109KC1V42,ICICI Prudential Nifty India Consumption ETF,ICICI Prudential Mutual Fund,,Nifty India Consumption,,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+CPSEETF,INF457M01133,CPSE ETF,Nippon India Mutual Fund,,Nifty CPSE,,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+DEFENCE,INF769K01QC2,Mirae Asset BSE India Defence ETF,Mirae Asset Mutual Fund,,BSE India Defence,,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+DIVIDEND,INF769K01PY8,Mirae Asset BSE 500 Dividend Leaders 50 ETF,Mirae Asset Mutual Fund,Bse 500,BSE 500 Dividend Leaders 50,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+DIVOPPBEES,INF204KA1MS3,Nippon India ETF Nifty Dividend Opportunities 50,Nippon India Mutual Fund,,Nifty Dividend Opportunities 50,,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+EBANK10,INF754K01XH9,Edelweiss BSE Top 10 Bank ETF,Edelweiss Mutual Fund,,BSE Top 10 Banks,,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+EBANKNIFTY,INF754K01TE4,Edelweiss Nifty Bank ETF,Edelweiss Mutual Fund,Nifty Bank,Nifty Bank,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+ECAPINSURE,INF754K01TX4,Edelweiss BSE Capital Markets & Insurance ETF,Edelweiss Mutual Fund,,BSE Capital Markets & Insurance,,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+EGOLD,INF754K01SE6,Edelweiss Gold ETF,Edelweiss Mutual Fund,Gold,GOLD,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+ELM250,INF754K01VV4,Edelweiss Nifty LargeMidcap 250 ETF,Edelweiss Mutual Fund,,Nifty LargeMidcap 250,,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+ELMDIV,INF754K01XI7,Edelweiss BSE LargeMid (60:40) Stable dividend 50 ETF,Edelweiss Mutual Fund,,BSE LargeMid (60:40) Stable Dividend 50,,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+EMETAL,INF754K01XG1,Edelweiss Nifty Metal ETF,Edelweiss Mutual Fund,Nifty Metal,Nifty Metal,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+EMULTIMQ,INF754K01TF1,Edelweiss Nifty500 Multicap Momentum Quality 50 ETF,Edelweiss Mutual Fund,,Nifty 500 Multicap Momentum Quality 50,,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+ENERGY,INF769K01PR2,Mirae Asset Nifty Energy ETF,Mirae Asset Mutual Fund,,Nifty Energy,,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+ENERGYAXIS,INF846KA1598,Axis Nifty Energy ETF,Axis Mutual Fund,,Nifty Energy,,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+ENEXT50,INF754K01XF3,Edelweiss Nifty Next 50 ETF,Edelweiss Mutual Fund,Nifty Next 50,Nifty Next 50,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+ENIFTY,INF754K01VX0,Edelweiss Nifty 50 ETF,Edelweiss Mutual Fund,Nifty 50,Nifty 50,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+EQUAL200,INF769K01OA1,Mirae Asset BSE 200 Equal Weight ETF,Mirae Asset Mutual Fund,Bse 200,BSE 200 Equal Weight,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+EQUAL50,INF769K01OO2,Mirae Asset Nifty50 Equal Weight ETF,Mirae Asset Mutual Fund,,Nifty 50 Equal Weight,,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+EQUAL50ADD,INF740KA1QK2,DSP Nifty 50 Equal Weight ETF,DSP Mutual Fund,Nifty 50,NIFTY 50 Equal Weight,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+ESENSEX,INF754K01VY8,Edelweiss BSE Sensex ETF,Edelweiss Mutual Fund,Sensex Etf,BSE Sensex,REVIEW,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+ESG,INF769K01GS9,Mirae Asset Nifty 100 ESG Sector Leaders ETF,Mirae Asset Mutual Fund,Nifty 100,Nifty 100 ESG Sector Leaders,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+ESILVER,INF754K01SF3,Edelweiss Silver ETF,Edelweiss Mutual Fund,Silver,SILVER,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+EVIETF,INF109K1A153,ICICI Prudential Nifty EV & New Age Automotive ETF,ICICI Prudential Mutual Fund,,Nifty EV and New Age Automotive,,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+EVINDIA,INF769K01LQ3,Mirae Asset Nifty EV and New Age Automotive ETF,Mirae Asset Mutual Fund,,Nifty EV and New Age Automotive,,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+FINIETF,INF109KC17L8,ICICI Prudential Nifty Financial Services Ex-Bank ETF,ICICI Prudential Mutual Fund,,Nifty Financial Services Ex-Bank,,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+FLEXIADD,INF740KA1WU9,DSP Nifty500 Flexicap Quality 30 ETF,DSP Mutual Fund,,Nifty 500 Flexicap Quality 30,,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+FMCGADD,INF740KA1ZA4,DSP Nifty FMCG ETF,DSP Mutual Fund,Nifty Fmcg,Nifty FMCG,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+FMCGIETF,INF109KC19V3,ICICI Prudential Nifty FMCG ETF,ICICI Prudential Mutual Fund,Nifty Fmcg,Nifty FMCG,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+GOLD1,INF174KA1HJ8,KOTAK GOLD ETF,Kotak Mahindra Mutual Fund,Gold,GOLD,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+GOLD360,INF579M01BB5,360 ONE Gold ETF,360 ONE Mutual Fund,Gold,GOLD,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+GOLDADD,INF740KA1ZP2,DSP Gold ETF,DSP Mutual Fund,Gold,GOLD,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+GOLDAXIS,INF846K01W80,Axis Gold ETF,Axis Mutual Fund,Gold,GOLD,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+GOLDBEES,INF204KB17I5,Nippon India ETF Gold BeES,Nippon India Mutual Fund,Gold,GOLD,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+GOLDBETA,INF789F1AUX7,UTI - Gold Exchange Traded Fund,UTI Mutual Fund,Gold,GOLD,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+GOLDBND,INF194KB1KJ7,Bandhan Gold ETF,Bandhan Mutual Fund,Gold,GOLD,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+GOLDCASE,INF0R8F01042,Zerodha Gold ETF,Zerodha Mutual Fund,Gold,GOLD,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+GOLDETF,INF769K01JP9,Mirae Asset Gold ETF,Mirae Asset Mutual Fund,Gold,GOLD,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+GOLDIETF,INF109KC1NT3,ICICI Prudential Gold ETF,ICICI Prudential Mutual Fund,Gold,GOLD,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+GROWWCAPM,INF666M01MM4,Groww Nifty Capital Markets ETF,Groww Mutual Fund,,Nifty Capital Market,,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+GROWWCHEM,INF666M01NP5,Groww Nifty Chemicals ETF,Groww Mutual Fund,,Nifty Chemicals,,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+GROWWDEFNC,INF666M01IO8,Groww Nifty India Defence ETF,Groww Mutual Fund,,Nifty India Defence,,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+GROWWEV,INF666M01IH2,Groww Nifty EV & New Age Automotive ETF,Groww Mutual Fund,,Nifty EV and New Age Automotive,,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+GROWWGOLD,INF666M01OE7,Groww Gold ETF,Groww Mutual Fund,Gold,GOLD,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+GROWWHOSPI,INF666M01OD9,Groww BSE Hospitals ETF,Groww Mutual Fund,,BSE Hospitals,,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+GROWWLOVOL,INF666M01LB9,Groww Nifty 500 Low Volatility 50 ETF,Groww Mutual Fund,Nifty 500 Low Volatility 50,Nifty 500 Low Volatility 50,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+GROWWMC150,INF666M01MV5,Groww Nifty Midcap 150 ETF,Groww Mutual Fund,Nifty Midcap 150,Nifty Midcap 150,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+GROWWMETAL,INF666M01NI0,Groww Nifty Metal ETF,Groww Mutual Fund,Nifty Metal,Nifty Metal,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+GROWWMOM50,INF666M01KJ4,Groww Nifty 500 Momentum 50 ETF,Groww Mutual Fund,Nifty 500 Momentum 50,Nifty 500 Momentum 50,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+GROWWN200,INF666M01JV1,Groww Nifty 200 ETF,Groww Mutual Fund,Nifty 200,Nifty 200,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+GROWWNET,INF666M01LI4,Groww Nifty India Internet ETF,Groww Mutual Fund,,Nifty India Internet,,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+GROWWNIFTY,INF666M01LL8,Groww Nifty 50 ETF,Groww Mutual Fund,Nifty 50,Nifty 50,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+GROWWNXT50,INF666M01LZ8,Groww Nifty Next 50 ETF,Groww Mutual Fund,Nifty Next 50,Nifty Next 50,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+GROWWPOWER,INF666M01LM6,Groww BSE Power ETF,Groww Mutual Fund,,BSE Power,,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+GROWWPSE,INF666M01NQ3,Groww Nifty PSE ETF,Groww Mutual Fund,,Nifty PSE,,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+GROWWPSUBK,INF666M01OG2,Groww Nifty PSU Bank ETF,Groww Mutual Fund,,Nifty PSU Bank,,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+GROWWRAIL,INF666M01JJ6,Groww Nifty India Railways PSU ETF,Groww Mutual Fund,,Nifty India Railways PSU,,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+GROWWRLTY,INF666M01MN2,Groww Nifty Realty ETF,Groww Mutual Fund,,Nifty Realty,,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+GROWWSC250,INF666M01MO0,Groww Nifty Smallcap 250 ETF,Groww Mutual Fund,Nifty Smallcap 250,Nifty Smallcap 250,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+GROWWSLVR,INF666M01OF4,Groww Silver ETF,Groww Mutual Fund,Silver,SILVER,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+HDFCBSE500,INF179KC1EZ4,HDFC BSE 500 ETF,HDFC Mutual Fund,Bse 500,BSE 500,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+HDFCGOLD,INF179KC1981,HDFC Gold ETF,HDFC Mutual Fund,Gold,GOLD,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+HDFCGROWTH,INF179KC1DJ0,HDFC NIFTY GROWTH SECTORS 15 ETF,HDFC Mutual Fund,,Nifty Growth Sectors 15,,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+HDFCLOWVOL,INF179KC1HU8,HDFC NIFTY100 Low Volatility 30 ETF,HDFC Mutual Fund,,Nifty 100 Low Volatility 30,,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+HDFCMID150,INF179KC1HT0,HDFC NIFTY Midcap 150 ETF,HDFC Mutual Fund,Nifty Midcap 150,Nifty Midcap 150,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+HDFCMOMENT,INF179KC1HV6,HDFC NIFTY200 MOMENTUM 30 ETF,HDFC Mutual Fund,,Nifty 200 Momentum 30,,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+HDFCNEXT50,INF179KC1HS2,HDFC NIFTY NEXT 50 ETF,HDFC Mutual Fund,Nifty Next 50,Nifty Next 50,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+HDFCNIF100,INF179KC1HR4,HDFC NIFTY 100 ETF,HDFC Mutual Fund,Nifty 100,Nifty 100,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+HDFCNIFBAN,INF179KC1HY0,HDFC NIFTY BANK ETF,HDFC Mutual Fund,Nifty Bank,Nifty Bank,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+HDFCNIFIT,INF179KC1IA8,HDFC NIFTY IT ETF,HDFC Mutual Fund,Nifty It,Nifty IT,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+HDFCNIFTY,INF179KC1965,HDFC NIFTY 50 ETF,HDFC Mutual Fund,Nifty 50,Nifty 50,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+HDFCNIMEG,INF179KC1KT4,HDFCAMC - HDFCNIMEG,,,Nifty Metal,,NSE,dhan,upstox,2026-09-20T14:45:08+00:00
+HDFCPSUBK,INF179KC1HW4,HDFC NIFTY PSU BANK ETF,HDFC Mutual Fund,,Nifty PSU Bank,,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+HDFCPVTBAN,INF179KC1HZ7,HDFC NIFTY Private Bank ETF,HDFC Mutual Fund,,Nifty Private Bank,,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+HDFCQUAL,INF179KC1DL6,HDFC NIFTY100 QUALITY 30 ETF,HDFC Mutual Fund,,Nifty 100 Quality 30,,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+HDFCSENSEX,INF179KC1HX2,HDFC BSE Sensex ETF,HDFC Mutual Fund,Sensex Etf,BSE Sensex,REVIEW,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+HDFCSILVER,INF179KC1DI2,HDFC Silver ETF,HDFC Mutual Fund,Silver,SILVER,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+HDFCSML250,INF179KC1FB2,HDFC NIFTY Smallcap 250 ETF,HDFC Mutual Fund,Nifty Smallcap 250,Nifty Smallcap 250,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+HDFCVALUE,INF179KC1DK8,HDFC NIFTY50 VALUE 20 ETF,HDFC Mutual Fund,,Nifty 50 Value 20,,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+HEALTHADD,INF740KA1ZG1,DSP Nifty Healthcare ETF,DSP Mutual Fund,,Nifty Healthcare,,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+HEALTHAXIS,INF846K01Z12,Axis NIFTY Healthcare ETF,Axis Mutual Fund,,Nifty Healthcare,,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+HEALTHCARE,INF769K01QA6,Mirae Asset Nifty 500 Healthcare ETF,Mirae Asset Mutual Fund,Nifty 500,Nifty 500 Healthcare,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+HEALTHIETF,INF109KC1Q72,ICICI Prudential Nifty Healthcare ETF,ICICI Prudential Mutual Fund,,Nifty Healthcare,,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+HEALTHY,INF209KB10C2,Aditya Birla Sun Life Nifty Healthcare ETF,Aditya Birla Sun Life Mutual Fund,,Nifty Healthcare,,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+HNGSNGBEES,INF204KB19I1,Nippon India ETF Hang Seng BeES,Nippon India Mutual Fund,Hang Seng,GLOBAL INDICES,REVIEW,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+HSBCGOLD,INF336L01RX2,HSBC Gold ETF,HSBC Mutual Fund,Gold,GOLD,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+ICICIB22,INF109KB15Y7,BHARAT 22 ETF,ICICI Prudential Mutual Fund,,BSE BHARAT 22,,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+IDFNIFTYET,INF194KA1U07,BANDHAN Nifty 50 ETF,Bandhan Mutual Fund,Nifty 50,Nifty 50,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+INFRA,INF769K01QB4,Mirae Asset Nifty India Infrastructure & Logistics ETF,Mirae Asset Mutual Fund,,Nifty India Infrastructure & Logistics,,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+INFRABEES,INF732E01268,Nippon India ETF Nifty Infrastructure BeES,Nippon India Mutual Fund,,Nifty Infrastructure,,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+INFRAIETF,INF109KC16E5,ICICI Prudential Nifty Infrastructure ETF,ICICI Prudential Mutual Fund,,Nifty Infrastructure,,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+INSUREIETF,INF109K1A567,ICICI Prudential BSE Insurance ETF,ICICI Prudential Mutual Fund,,BSE Insurance,,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+INTERNET,INF769K01PB6,Mirae Asset Nifty India Internet ETF,Mirae Asset Mutual Fund,,Nifty India Internet,,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+IT,INF174KA1GC5,Kotak Nifty IT ETF,Kotak Mahindra Mutual Fund,Nifty It,NIFTY IT,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+ITADD,INF740KA1SX1,DSP Nifty IT ETF,DSP Mutual Fund,Nifty It,Nifty IT,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+ITAXIS,INF846K01Y96,Axis NIFTY IT ETF,Axis Mutual Fund,Nifty It,Nifty IT,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+ITBEES,INF204KB15V2,Nippon India ETF Nifty IT,Nippon India Mutual Fund,Nifty It,Nifty IT,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+ITBETA,INF789F1AZD8,UTI Nifty IT ETF,UTI Mutual Fund,Nifty It,Nifty IT,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+ITETF,INF769K01KV5,Mirae Asset Nifty IT ETF,Mirae Asset Mutual Fund,Nifty It,Nifty IT,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+ITIETF,INF109KC16I6,ICICI Prudential Nifty IT ETF,ICICI Prudential Mutual Fund,Nifty It,Nifty IT,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+IVZBANKNF,INF205KA1CB9,Invesco India Nifty Bank ETF,Invesco Mutual Fund,Nifty Bank,Nifty Bank,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+IVZINGOLD,INF205KA1BP1,Invesco India Gold Exchange Traded Fund,Invesco Mutual Fund,Gold,GOLD,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+IVZINNIFTY,INF205KA1CC7,Invesco India Nifty 50 Exchange Traded Fund,Invesco Mutual Fund,Nifty 50,Nifty 50,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+IVZSENSEX,INF205KA1CA1,Invesco India BSE Sensex ETF,Invesco Mutual Fund,Sensex Etf,BSE Sensex,REVIEW,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+JUNIORBEES,INF732E01045,Nippon India ETF Nifty Next 50 Junior BeES,Nippon India Mutual Fund,Nifty Next 50,Nifty Next 50,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+LARGEMID50,INF769K01RK3,Mirae Asset BSE LargeMid (60:40) Stable Dividend 50 ETF,Mirae Asset Mutual Fund,,BSE LargeMid (60:40) Stable Dividend 50,,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+LICMFGOLD,INF767K01SM1,LIC MF Gold Exchange Traded Fund,LIC Mutual Fund,Gold,GOLD,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+LICNETFN50,INF767K01OS7,LIC MF Nifty 50 ETF,LIC Mutual Fund,Nifty 50,Nifty 50,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+LICNETFSEN,INF767K01OT5,LIC MF BSE Sensex ETF,LIC Mutual Fund,Sensex Etf,BSE Sensex,REVIEW,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+LICNFNHGP,INF767K01PC8,LIC MF Nifty 100 ETF,LIC Mutual Fund,Nifty 100,Nifty 100,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+LICNMID100,INF767K01RN1,LIC MF Nifty Midcap 100 ETF,LIC Mutual Fund,Nifty Midcap 100,Nifty Midcap 100,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+LOWVOL,INF769K01JU9,Mirae Asset Nifty 100 Low Volatility 30 ETF,Mirae Asset Mutual Fund,Nifty 100 Low Volatility 30,Nifty 100 Low Volatility 30,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+LOWVOL1,INF174KA1IY5,Kotak Nifty 100 Low Volatility 30 ETF,Kotak Mahindra Mutual Fund,Nifty 100 Low Volatility 30,NIFTY 100 Low Volatility 30,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+LOWVOLIETF,INF109KC19U5,ICICI Prudential Nifty 100 Low Volatility 30 ETF,ICICI Prudential Mutual Fund,Nifty 100 Low Volatility 30,Nifty 100 Low Volatility 30,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+MAFANG,INF769K01HF4,Mirae Asset NYSE FANG+ ETF,Mirae Asset Mutual Fund,,GLOBAL INDICES,,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+MAHKTECH,INF769K01HS7,Mirae Asset Hang Seng TECH ETF,Mirae Asset Mutual Fund,Hang Seng,GLOBAL INDICES,REVIEW,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+MAKEINDIA,INF769K01IB1,Mirae Asset Nifty India Manufacturing ETF,Mirae Asset Mutual Fund,,Nifty India Manufacturing,,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+MANUFGBEES,INF204KC1GH6,Nippon India Nifty India Manufacturing ETF,Nippon India Mutual Fund,,Nifty India Manufacturing,,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+MASPTOP50,INF769K01HP3,Mirae Asset S&P 500 Top 50 ETF,Mirae Asset Mutual Fund,S&P 500,GLOBAL INDICES,REVIEW,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+METAL,INF769K01LY7,Mirae Asset Nifty Metal ETF,Mirae Asset Mutual Fund,Nifty Metal,Nifty Metal,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+METALIETF,INF109KC19W1,ICICI Prudential Nifty Metal ETF,ICICI Prudential Mutual Fund,Nifty Metal,Nifty Metal,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+MID150,INF174KA1VW2,Kotak Nifty Midcap 150 ETF,Kotak Mahindra Mutual Fund,Nifty Midcap 150,Nifty Midcap 150,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+MID150BEES,INF204KB1V68,Nippon India ETF Nifty Midcap 150,Nippon India Mutual Fund,Nifty Midcap 150,Nifty Midcap 150,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+MID150CASE,INF0R8F01059,Zerodha Nifty Midcap 150 ETF,Zerodha Mutual Fund,Nifty Midcap 150,Nifty Midcap 150,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+MIDBANKADD,INF740KA1ZH9,DSP BSE MidSmall Private Banks ETF,DSP Mutual Fund,,BSE MidSmall Private Banks,,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+MIDCAP,INF174KA1ZC5,Kotak Nifty Midcap 50 ETF,Kotak Mahindra Mutual Fund,Nifty Midcap 50,NIFTY Midcap 50,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+MIDCAPADD,INF740KA1WW5,DSP Nifty Midcap 150 ETF,DSP Mutual Fund,Nifty Midcap 150,Nifty Midcap 150,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+MIDCAPBETA,INF789F1AYX9,UTI Nifty Midcap 150 Exchange Traded Fund,UTI Mutual Fund,Nifty Midcap 150,Nifty Midcap 150,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+MIDCAPETF,INF769K01IC9,Mirae Asset Nifty Midcap 150 ETF,Mirae Asset Mutual Fund,Nifty Midcap 150,Nifty Midcap 150,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+MIDCAPIETF,INF109KC11W8,ICICI Prudential Nifty Midcap 150 ETF,ICICI Prudential Mutual Fund,Nifty Midcap 150,Nifty Midcap 150,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+MIDQ50ADD,INF740KA1ZF3,DSP Nifty Midcap 150 Quality 50 ETF,DSP Mutual Fund,Nifty Midcap 150,Nifty Midcap 150 Quality 50,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+MIDSELIETF,INF109KC10W0,ICICI Prudential BSE Midcap Select ETF,ICICI Prudential Mutual Fund,,BSE Midcap Select,,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+MIDSMALL,INF769K01LJ8,Mirae Asset Nifty MidSmallcap400 Momentum Quality 100 ETF,Mirae Asset Mutual Fund,,Nifty MidSmallcap400 Momentum Quality 100,,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+MNC,INF174KA1JF2,Kotak Nifty MNC ETF,Kotak Mahindra Mutual Fund,,Nifty MNC,,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+MOALPHA50,INF247L01FR8,Motilal Oswal Nifty Alpha 50 ETF,Motilal Oswal Mutual Fund,,Nifty Alpha 50,,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+MOBANK10,INF247L01GV8,Motilal Oswal BSE Top 10 Banks ETF,Motilal Oswal Mutual Fund,,BSE Top 10 Banks,,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+MOCAPITAL,INF247L01EV3,Motilal Oswal Nifty Capital Market ETF,Motilal Oswal Mutual Fund,,Nifty Capital Market,,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+MODEFENCE,INF247L01DJ0,Motilal Oswal Nifty India Defence ETF,Motilal Oswal Mutual Fund,,Nifty India Defence,,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+MOENERGY,INF247L01GH7,Motilal Oswal Nifty Energy ETF,Motilal Oswal Mutual Fund,,Nifty Energy,,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+MOGOLD,INF247L01FY4,Motilal Oswal Gold ETF,Motilal Oswal Mutual Fund,Gold,GOLD,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+MOHEALTH,INF247L01BB1,Motilal Oswal BSE Healthcare ETF,Motilal Oswal Mutual Fund,,BSE Healthcare,,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+MOINFRA,INF247L01FL1,Motilal Oswal BSE India Infrastructure ETF,Motilal Oswal Mutual Fund,,BSE India Infrastructure,,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+MOIPO,INF247L01GI5,Motilal Oswal BSE Select IPO ETF,Motilal Oswal Mutual Fund,,BSE Select IPO,,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+MOLOWVOL,INF247L01BL0,Motilal Oswal BSE Low Volatility ETF,Motilal Oswal Mutual Fund,,Nifty Midcap 100,,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+MOM100,INF247L01023,Motilal Oswal Nifty Midcap 100 ETF,Motilal Oswal Mutual Fund,Nifty Midcap 100,Nifty Midcap 100,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+MOM30IETF,INF109KC17C7,ICICI Prudential Nifty 200 Momentum 30 ETF,ICICI Prudential Mutual Fund,Nifty 200 Momentum 30,Nifty 200 Momentum 30,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+MOM50,INF247L01536,Motilal Oswal Nifty 50 ETF,Motilal Oswal Mutual Fund,Nifty 50,Nifty 50,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+MOMENTUM,INF209KB14K7,Aditya Birla Sun Life Nifty 200 Momentum 30 ETF,Aditya Birla Sun Life Mutual Fund,Nifty 200 Momentum 30,Nifty 200 Momentum 30,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+MOMENTUM30,INF174KA1XS6,Kotak Nifty 200 Momentum 30 ETF,Kotak Mahindra Mutual Fund,Nifty 200 Momentum 30,Nifty 200 Momentum 30,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+MOMENTUM50,INF247L01DK8,Motilal Oswal Nifty 500 Momentum 50 ETF,Motilal Oswal Mutual Fund,Nifty 500 Momentum 50,Nifty 500 Momentum 50,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+MOMETAL,INF247L01HG7,Motilal Oswal Nifty Metal ETF,Motilal Oswal Mutual Fund,Nifty Metal,Nifty Metal,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+MOMGF,INF247L01FK3,Motilal Oswal Nifty India Manufacturing ETF,Motilal Oswal Mutual Fund,,Nifty India Manufacturing,,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+MOMIDMTM,INF247L01FQ0,Motilal Oswal Nifty Midcap 150 Momentum 50 ETF,Motilal Oswal Mutual Fund,Nifty Midcap 150,Nifty Midcap 150 Momentum 50,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+MOMMIDCAP,INF769K01RC0,Mirae Asset BSE Midcap 150 Momentum 30 ETF,Mirae Asset Mutual Fund,,BSE Midcap 150 Momentum 30,,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+MOMNC,INF247L01GK1,Motilal Oswal Nifty MNC ETF,Motilal Oswal Mutual Fund,,Nifty MNC ETF,,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+MOMOMENTUM,INF247L01BK2,Motilal Oswal Nifty 200 Momentum 30 ETF,Motilal Oswal Mutual Fund,Nifty 200 Momentum 30,Nifty 200 Momentum 30,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+MON100,INF247L01AP3,Motilal Oswal Nasdaq 100 ETF,Motilal Oswal Mutual Fund,Nasdaq 100,GLOBAL INDICES,REVIEW,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+MON50EQUAL,INF247L01FC0,Motilal Oswal Nifty 50 Equal Weight ETF,Motilal Oswal Mutual Fund,Nifty 50,NIFTY 50 Equal Weight,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+MONEXT50,INF247L01FD8,Motilal Oswal Nifty Next 50 ETF,Motilal Oswal Mutual Fund,Nifty Next 50,Nifty Next 50,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+MONIFTY100,INF247L01GG9,Motilal Oswal Nifty 100 ETF,Motilal Oswal Mutual Fund,Nifty 100,Nifty 100,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+MONIFTY500,INF247L01BU1,Motilal Oswal Nifty 500 ETF,Motilal Oswal Mutual Fund,Nifty 500,Nifty 500,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+MONQ50,INF247L01AU3,Motilal Oswal Nasdaq Q50 ETF,Motilal Oswal Mutual Fund,Nasdaq,GLOBAL INDICES,REVIEW,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+MOOILGAS,INF247L01HH5,Motilal Oswal Nifty Oil & Gas ETF,Motilal Oswal Mutual Fund,,Nifty Oil & Gas,,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+MOPSE,INF247L01FO5,Motilal Oswal Nifty PSE ETF,Motilal Oswal Mutual Fund,,Nifty PSE,,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+MOQUALITY,INF247L01BH8,Motilal Oswal BSE Quality ETF,Motilal Oswal Mutual Fund,,BSE Quality,,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+MOREALTY,INF247L01CI4,Motilal Oswal Nifty Realty ETF,Motilal Oswal Mutual Fund,,Nifty Realty,,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+MOSERVICE,INF247L01GJ3,Motilal Oswal Nifty Services Sector ETF,Motilal Oswal Mutual Fund,,Nifty Services Sector,,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+MOSILVER,INF247L01FZ1,Motilal Oswal Silver ETF,Motilal Oswal Mutual Fund,Silver,SILVER,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+MOSMALL250,INF247L01CH6,Motilal Oswal Nifty Smallcap 250 ETF,Motilal Oswal Mutual Fund,Nifty Smallcap 250,Nifty Smallcap 250,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+MOTOUR,INF247L01FP2,Motilal Oswal Nifty India Tourism ETF,Motilal Oswal Mutual Fund,,Nifty India Tourism,,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+MOVALUE,INF247L01BE5,Motilal Oswal BSE Enhanced Value ETF,Motilal Oswal Mutual Fund,,BSE Enhanced Value,,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+MSCI360,INF579M01BP5,360 ONE MSCI India ETF,360 ONE Mutual Fund,,MSCI India,,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+MSCIADD,INF740KA1WV7,DSP MSCI INDIA ETF,DSP Mutual Fund,,MSCI India,,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+MSCIINDIA,INF174KA1VD2,Kotak MSCI India ETF,Kotak Mahindra Mutual Fund,,MSCI India,,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+MULTICAP,INF769K01LX9,Mirae Asset Nifty500 Multicap 50:25:25 ETF,Mirae Asset Mutual Fund,,Nifty 500 Multicap 50:25:25,,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+NETF,INF277K015R5,Tata Nifty 50 Exchange Traded Fund,Tata Mutual Fund,Nifty 50,Nifty 50,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+NEXT30ADD,INF740KA1VE5,DSP BSE SENSEX Next 30 ETF,DSP Mutual Fund,Sensex Next,BSE SENSEX Next 30,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+NEXT50,INF769K01FN2,Mirae Asset Nifty Next 50 ETF,Mirae Asset Mutual Fund,Nifty Next 50,Nifty Next 50,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+NEXT50ADD,INF740KA1XU7,DSP Nifty Next 50 ETF,DSP Mutual Fund,Nifty Next 50,Nifty Next 50,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+NEXT50BETA,INF789F1AUW9,UTI - Nifty Next 50 Exchange Traded Fund,UTI Mutual Fund,Nifty Next 50,Nifty Next 50,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+NEXT50ETF,INF174KA1YO3,Kotak Nifty Next 50 ETF,Kotak Mahindra Mutual Fund,Nifty Next 50,Nifty Next 50,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+NEXT50IETF,INF109KC1NS5,ICICI Prudential Nifty Next 50 ETF,ICICI Prudential Mutual Fund,Nifty Next 50,Nifty Next 50,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+NIF100BEES,INF204K014N5,Nippon India ETF Nifty 100,Nippon India Mutual Fund,Nifty 100,Nifty 100,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+NIF100IETF,INF109KC16V9,ICICI Prudential Nifty 100 ETF,ICICI Prudential Mutual Fund,Nifty 100,Nifty 100,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+NIF500BETA,INF789F1AG76,UTI Nifty 500 Exchange Traded Fund,UTI Mutual Fund,Nifty 500,Nifty 500,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+NIFTY1,INF174K014P6,Kotak Nifty 50 ETF,Kotak Mahindra Mutual Fund,Nifty 50,Nifty 50,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+NIFTY100EW,INF174KA1UW4,Kotak Nifty 100 Equal Weight ETF,Kotak Mahindra Mutual Fund,Nifty 100,Nifty 100 Equal Weight,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+NIFTYADD,INF740KA1CL0,DSP Nifty 50 ETF,DSP Mutual Fund,Nifty 50,Nifty 50,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+NIFTYAXIS,INF846K01W98,Axis Nifty 50 ETF,Axis Mutual Fund,Nifty 50,Nifty 50,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+NIFTYBEES,INF204KB14I2,Nippon India ETF Nifty 50 BeES,Nippon India Mutual Fund,Nifty 50,Nifty 50,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+NIFTYBETA,INF789F1AZC0,UTI Nifty 50 ETF,UTI Mutual Fund,Nifty 50,Nifty 50,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+NIFTYBETF,INF0QA701722,Bajaj Finserv Nifty 50 ETF,Bajaj Finserv Mutual Fund,Nifty 50,Nifty 50,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+NIFTYCASE,INF0R8F01166,Zerodha Nifty 50 ETF,Zerodha Mutual Fund,Nifty 50,Nifty 50,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+NIFTYETF,INF769K01EG9,Mirae Asset Nifty 50 ETF,Mirae Asset Mutual Fund,Nifty 50,Nifty 50,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+NIFTYIETF,INF109K012R6,ICICI Prudential Nifty 50 ETF,ICICI Prudential Mutual Fund,Nifty 50,Nifty 50,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+NIFTYJBLK,INF22M001184,JioBlackRock Nifty 50 ETF,Jio BlackRock Mutual Fund,Nifty 50,Nifty 50,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+NIFTYQLITY,INF209KB15K4,Aditya Birla Sun Life Nifty 200 Quality 30 ETF,Aditya Birla Sun Life Mutual Fund,Nifty 200 Quality 30,Nifty 200 Quality 30,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+NPBET,INF277K010X4,Tata Nifty Private Bank Exchange Traded Fund,Tata Mutual Fund,,Nifty Private Bank,,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+NV20,INF174KA1ZE1,Kotak Nifty 50 Value 20 ETF,Kotak Mahindra Mutual Fund,Nifty 50 Value 20,Nifty 50 Value 20,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+NV20BEES,INF204KB18I3,Nippon India ETF Nifty 50 Value 20,Nippon India Mutual Fund,Nifty 50 Value 20,Nifty 50 Value 20,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+NV20IETF,INF109KC11V0,ICICI Prudential Nifty50 Value 20 ETF,ICICI Prudential Mutual Fund,,Nifty 50 Value 20,,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+OILIETF,INF109KC18W3,ICICI Prudential Nifty Oil & Gas ETF,ICICI Prudential Mutual Fund,,Nifty Oil & Gas,,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+PHARMABEES,INF204KC1089,Nippon India Nifty Pharma ETF,Nippon India Mutual Fund,Nifty Pharma,Nifty Pharma,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+PSUBANK,INF174KA1A86,Kotak Nifty PSU Bank ETF,Kotak Mahindra Mutual Fund,,Nifty PSU Bank,,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+PSUBANKADD,INF740KA1SY9,DSP Nifty PSU Bank ETF,DSP Mutual Fund,,Nifty PSU Bank,,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+PSUBNKBEES,INF204KB16I7,Nippon India ETF Nifty PSU Bank BeES,Nippon India Mutual Fund,,Nifty PSU Bank,,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+PSUBNKIETF,INF109KC10S8,ICICI Prudential Nifty PSU Bank ETF,ICICI Prudential Mutual Fund,,Nifty PSU Bank,,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+PVTBANIETF,INF109KC18U7,ICICI Prudential Nifty Private Bank ETF,ICICI Prudential Mutual Fund,,Nifty Private Bank,,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+PVTBANK,INF174KA1A94,Kotak Nifty Private Bank ETF,Kotak Mahindra Mutual Fund,,Nifty Private Bank,,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+PVTBANKADD,INF740KA1TA7,DSP Nifty Private Bank ETF,DSP Mutual Fund,,Nifty Private Bank,,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+PVTBKGROWW,INF666M01OT5,Groww Nifty Private Bank ETF,Groww Mutual Fund,,Nifty Private Bank,,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+QGOLDHALF,INF082J01408,Quantum Gold ETF,Quantum Mutual Fund,Gold,GOLD,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+QNIFTY,INF082J01499,Quantum Nifty 50 ETF,Quantum Mutual Fund,Nifty 50,Nifty 50,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+QUAL30IETF,INF109KC18V5,ICICI Prudential Nifty 200 Quality 30 ETF,ICICI Prudential Mutual Fund,Nifty 200 Quality 30,Nifty 200 Quality 30,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+QUALITY30,INF174KA1WT6,Kotak Nifty200 Quality 30 ETF,Kotak Mahindra Mutual Fund,,Nifty 200 Quality 30,,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+SBIBPB,INF200KB1712,SBI BSE PSU BANK ETF,SBI Mutual Fund,,BSE PSU Bank,,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+SBIETFCON,INF200KA1X17,SBI Nifty Consumption ETF,SBI Mutual Fund,,Nifty India Consumption,,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+SBIETFIT,INF200KA1S14,SBI Nifty IT ETF,SBI Mutual Fund,Nifty It,Nifty IT,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+SBIETFPB,INF200KA1S22,SBI Nifty Private Bank ETF,SBI Mutual Fund,,Nifty Private Bank,,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+SBIETFQLTY,INF200KA1WX6,SBI Nifty 200 Quality 30 ETF,SBI Mutual Fund,Nifty 200 Quality 30,Nifty 200 Quality 30,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+SBIMIDMOM,INF200KB1AJ0,SBI Nifty Midcap 150 Momentum 50 ETF,SBI Mutual Fund,Nifty Midcap 150,Nifty Midcap 150 Momentum 50,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+SBINEQWETF,INF200KB1282,SBI Nifty50 Equal Weight ETF,SBI Mutual Fund,,Nifty 50 Equal Weight,,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+SBINMID150,INF200KB1AK8,SBI Nifty Midcap 150 ETF,SBI Mutual Fund,Nifty Midcap 150,Nifty Midcap 150,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+SBISILVER,INF200KB1217,SBI Silver ETF,SBI Mutual Fund,Silver,SILVER,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+SBISMLETF,INF200KB1AY9,SBI Nifty Smallcap 250 ETF,SBI Mutual Fund,Nifty Smallcap 250,Nifty Smallcap 250,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+SBIVALETF,INF200KB1AX1,SBI Nifty200 Value 30 ETF,SBI Mutual Fund,,Nifty 200 Value 30,,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+SELECTIPO,INF769K01ON4,Mirae Asset BSE Select IPO ETF,Mirae Asset Mutual Fund,,BSE Select IPO,,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+SENSEXADD,INF740KA1SZ6,DSP BSE Sensex ETF,DSP Mutual Fund,Sensex Etf,BSE Sensex,REVIEW,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+SENSEXAXIS,INF846K010Q0,Axis BSE Sensex ETF,Axis Mutual Fund,Sensex Etf,BSE Sensex,REVIEW,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+SENSEXBETA,INF789FB1X58,UTI BSE Sensex ETF,UTI Mutual Fund,Sensex Etf,BSE Sensex,REVIEW,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+SENSEXETF,INF769K01KT9,Mirae Asset BSE Sensex ETF,Mirae Asset Mutual Fund,Sensex Etf,BSE Sensex,REVIEW,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+SENSEXIETF,INF346A01034,ICICI Prudential BSE Sensex ETF,ICICI Prudential Mutual Fund,Sensex Etf,BSE Sensex,REVIEW,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+SETFGOLD,INF200KA16D8,SBI Gold ETF,SBI Mutual Fund,Gold,GOLD,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+SETFNIF50,INF200KA1FS1,SBI Nifty 50 ETF,SBI Mutual Fund,Nifty 50,Nifty 50,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+SETFNIFBK,INF200KA1580,SBI Nifty Bank ETF,SBI Mutual Fund,Nifty Bank,Nifty Bank,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+SETFNN50,INF200KA1598,SBI Nifty Next 50 ETF,SBI Mutual Fund,Nifty Next 50,Nifty Next 50,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+SHARIABEES,INF732E01128,Nippon India ETF Nifty 50 Shariah BeES,Nippon India Mutual Fund,Nifty 50,Nifty 50 Shariah,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+SILVER,INF209KB19F6,Aditya Birla Sun Life Silver ETF,Aditya Birla Sun Life Mutual Fund,Silver,SILVER,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+SILVER001,INF966L01EI5,QUANT_AMC - SILVER001,,Silver,SILVER,YES,NSE,dhan,upstox,2026-09-20T14:45:08+00:00
+SILVER1,INF174KA1ZD3,Kotak Silver ETF,Kotak Mahindra Mutual Fund,Silver,SILVER,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+SILVER360,INF579M01BC3,360 ONE Silver ETF,360 ONE Mutual Fund,Silver,SILVER,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+SILVERADD,INF740KA1ZQ0,DSP Silver ETF,DSP Mutual Fund,Silver,SILVER,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+SILVERAG,INF769K01KG6,Mirae Asset Silver ETF,Mirae Asset Mutual Fund,Silver,SILVER,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+SILVERAXIS,INF846K011K1,Axis Silver ETF,Axis Mutual Fund,Silver,SILVER,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+SILVERBEES,INF204KC1402,Nippon India Silver ETF,Nippon India Mutual Fund,Silver,SILVER,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+SILVERBETA,INF789F1AYK6,UTI Silver Exchange Traded Fund,UTI Mutual Fund,Silver,SILVER,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+SILVERBND,INF194KB1KI9,Bandhan Silver ETF,Bandhan Mutual Fund,Silver,SILVER,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+SILVERCASE,INF0R8F01091,Zerodha Silver ETF,Zerodha Mutual Fund,Silver,SILVER,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+SILVERIETF,INF109KC1Y56,ICICI PRUDENTIAL SILVER ETF,ICICI Prudential Mutual Fund,Silver,SILVER,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+SMALL250,INF769K01PQ4,Mirae Asset Nifty Smallcap 250 ETF,Mirae Asset Mutual Fund,Nifty Smallcap 250,Nifty Smallcap 250,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+SMALLADD,INF740KA1WX3,DSP Nifty Smallcap 250 ETF,DSP Mutual Fund,Nifty Smallcap 250,Nifty Smallcap 250,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+SMALLCAP,INF769K01LC3,Mirae Asset Nifty Smallcap 250 Momentum Quality 100 ETF,Mirae Asset Mutual Fund,Nifty Smallcap 250,Nifty Smallcap 250 Momentum Quality 100,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+SMALLGROWW,INF666M01PG9,Groww Nifty Smallcap 250 Momentum Quality 100 ETF,Groww Mutual Fund,Nifty Smallcap 250,Nifty Smallcap 250 Momentum Quality 100,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+SMALLIETF,INF109K1A476,ICICI Prudential Nifty Smallcap 250 ETF,ICICI Prudential Mutual Fund,Nifty Smallcap 250,Nifty Smallcap 250,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+SML100CASE,INF0R8F01141,Zerodha Nifty Smallcap 100 ETF,Zerodha Mutual Fund,Nifty Smallcap 100,Nifty Smallcap100,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+SNXT30BEES,INF204KC1EZ3,Nippon India BSE Sensex Next 30 ETF,Nippon India Mutual Fund,Sensex Next,BSE Sensex Next 30,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+SNXT50BETA,INF789F1AUU3,UTI - BSE Sensex Next 50 Exchange Traded Fund,UTI Mutual Fund,Sensex Next,BSE SENSEX Next 50,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+TATAGOLD,INF277KA1976,Tata Gold Exchange Traded Fund,Tata Mutual Fund,Gold,GOLD,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+TATSILV,INF277KA1984,Tata Silver Exchange Traded Fund,Tata Mutual Fund,Silver,SILVER,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+TECH,INF209KB11D8,Aditya Birla Sun Life Nifty IT ETF,Aditya Birla Sun Life Mutual Fund,Nifty It,Nifty IT,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+TNIDETF,INF277KA1364,Tata Nifty India Digital Exchange Traded Fund,Tata Mutual Fund,,Nifty Private Bank,,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+TOP100CASE,INF0R8F01067,Zerodha Nifty 100 ETF,Zerodha Mutual Fund,Nifty 100,Nifty 100,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+TOP10ADD,INF740KA1UR9,DSP Nifty Top 10 Equal Weight ETF,DSP Mutual Fund,,Nifty Top 10 Equal Weight,,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+TOP15IETF,INF109K1A344,ICICI Prudential Nifty Top 15 Equal Weight ETF,ICICI Prudential Mutual Fund,,Nifty Top 15 Equal Weight,,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+TOP20,INF769K01PZ5,Mirae Asset Nifty Top 20 Equal Weight ETF,Mirae Asset Mutual Fund,,Nifty Top 20 Equal Weight,,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+TWCGOLDETF,INF2F0001370,The Wealth Company Gold ETF,The Wealth Company Mutual Fund,Gold,GOLD,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+UNIONGOLD,INF582M01KS4,Union Gold ETF,Union Mutual Fund,Gold,GOLD,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+VAL30IETF,INF109KC16X5,ICICI Prudential Nifty200 Value 30 ETF,ICICI Prudential Mutual Fund,,Nifty 200 Value 30,,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+VALUE,INF769K01QV2,Mirae Asset Nifty 500 Value 50 ETF,Mirae Asset Mutual Fund,Nifty 500 Value 50,Nifty 500 Value 50,YES,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
+VALUEAXIS,INF846KA1119,Axis Nifty500 Value 50 ETF,Axis Mutual Fund,,Nifty 500 Value 50,,NSE,dhan,amfi,2026-09-20T14:45:08+00:00
