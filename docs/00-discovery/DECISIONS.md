@@ -1041,3 +1041,41 @@ Secrets Manager was rejected on cost. Options that are genuinely free:
 - **D-087 — All discussion closes before any code is written.** Broker research and end-to-end
   broker detail complete first; the first line of application code waits until the design
   conversation is finished.
+
+---
+
+## Round 12 — 2026-09-20 · Broker research begins (R2: SEBI compliance)
+
+**D-088 — The per-broker rate limiter is a compliance control.** SEBI's retail algo framework
+(in force since 1 April 2026) exempts self-developed retail algos from exchange registration
+**provided they stay under the Threshold Orders Per Second — 10 OPS** on NSE and BSE. ATOM
+places ~20 orders **per day**, so it sits about four orders of magnitude below the line. To
+keep it there structurally, the rate limiter is **hard-capped at 2 OPS**, not configurable
+upward without an explicit logged override.
+
+**D-089 — Keep an unused `algo_id` field in the order schema.** Registered algos must tag every
+order with an exchange-assigned Algo ID. ATOM does not need one below TOPS, but carrying the
+field now makes future compliance a value to populate rather than a schema migration.
+
+### 🔴 Finding that may affect the operating model
+
+**SEBI defines "family" narrowly: self, spouse, dependent children and dependent parents.**
+A self-developed algo may be used for those accounts and **no others**.
+
+D-004 recorded ATOM's posture as "self and family", which keeps it outside the algo-provider
+regime — **but only if every onboarded investor falls inside that definition**. A sibling,
+friend, in-law or independent parent does not.
+
+> **Q-192 — What is Person B's relationship to the operator?** This is now the highest-priority
+> open question in the project: it is the only one that can invalidate the operating model
+> rather than adjust a design detail.
+
+It also means the founding brief's ambition — "anyone having an account with any of these five
+brokers should be able to connect with our utility" — describes **being an algo provider**,
+a registered role acting as an agent of the broker. The architecture is unaffected and worth
+building either way; the *onboarding policy* is a regulatory decision, not a config change.
+
+Full analysis in [`../09-security/SEBI-ALGO-COMPLIANCE.md`](../09-security/SEBI-ALGO-COMPLIANCE.md).
+
+| Q-192 | 🔴 Person B's relationship to the operator — determines whether the family exemption covers them |
+| Q-193 | Q-186: add the peer-comparison discriminator for corporate actions, or accept the blind spot? |
