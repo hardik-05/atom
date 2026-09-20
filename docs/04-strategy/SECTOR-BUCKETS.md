@@ -35,13 +35,52 @@ CATEGORY (NSE)  →  BUCKET  →  SECTOR GROUP  →  correlation pool
 
 | Bucket | Sub-categories | ETFs | Liquid | Correlation pool |
 |---|---|---|---|---|
-| **BROAD** | 27 | 100 | 30 | Broad-market trackers — Nifty 50, Sensex, Next 50, midcap, smallcap |
-| **SECTOR** | 46 | 108 | 43 | Further split into sector groups (§3) |
+| **INDEX** | 27 | 100 | 30 | **Split by index segment — see §2A.** Not one pool |
+| **SECTOR** | 46 | 108 | 43 | Split into sector groups (§3) |
 | **FACTOR** | 33 | 52 | 18 | Momentum, quality, value, low-volatility, equal-weight, ESG |
 
-**A proxy must come from the same bucket, and within SECTOR from the same group.** A momentum
-ETF is not a proxy for a Nifty 50 ETF even though both are broad-ish — the factor tilt is the
-exposure.
+**Every bucket splits further. None is a correlation pool in itself.** A momentum ETF is not a
+proxy for a Nifty 50 ETF even though both track broad-ish baskets — the factor tilt *is* the
+exposure being sold.
+
+---
+
+## 2A. INDEX buckets — split by market-cap segment (D-100)
+
+> "Create buckets on index ETFs too — Nifty 50 ETF bucket, Smallcap 250 ETF bucket. Why are
+> they ignored?"
+
+**A fair correction of the first pass.** It demanded sector-level precision for SECTOR while
+leaving 100 index trackers in one undifferentiated pool — which would permit swapping a
+Nifty 50 ETF for a Smallcap 250 ETF. That books the loss but changes the market-cap exposure
+completely, the very error the sector rule exists to prevent.
+
+| Index bucket | ETFs | Liquid | Harvest | Indices covered |
+|---|---|---|---|---|
+| **LARGECAP_50** | 32 | **7** | ✅ | Nifty 50, BSE Sensex |
+| **MIDCAP** | 16 | **9** | ✅ | Nifty Midcap 150 / 100 / 50, BSE Midcap Select |
+| **SMALLCAP** | 8 | **5** | ✅ | Nifty Smallcap 250, Smallcap 100 |
+| **BROAD_MARKET_500** | 7 | **4** | ✅ | Nifty 500, BSE 500, Total Market, Multicap |
+| **NEXT_50** | 15 | 3 | ⚠️ thin | Nifty Next 50, BSE Sensex Next 30/50 |
+| **NIFTY_100** | 6 | 2 | ⚠️ thin | Nifty 100 |
+| **NIFTY_200** | 1 | **0** | ❌ | Nifty 200 |
+| **MSCI_INDIA** | 4 | **0** | ❌ | MSCI India |
+| **IPO_THEME** | 2 | **0** | ❌ | BSE Select IPO |
+
+**LARGECAP_50 deliberately merges Nifty 50 and BSE Sensex.** They track the same large-cap
+segment and historically correlate around 0.99, so they are near-perfect proxies for each other.
+The 0.85 correlation floor (D-070a) independently validates every pair before it is offered, so
+a merge that turned out to be wrong would be caught by the floor rather than silently executed.
+
+**Liquid LARGECAP_50 pool:** BSLNIFTY, GROWWNIFTY, NIFTYBEES, NIFTYCASE, NIFTYETF, NIFTYIETF,
+SETFNIF50 — seven mutually substitutable trackers. Along with GOLD (17) and SILVER (14), this is
+among the cleanest harvesting available.
+
+> ⚠️ **Whether NEXT_50 should merge into LARGECAP_50 is a genuine question (Q-200).** Nifty
+> Next 50 is a *different* basket — companies ranked 51–100 — and historically correlates with
+> Nifty 50 at roughly 0.85–0.90, right at the floor. Merging would grow a thin pool from 3 to
+> 10; keeping them apart is more conservative. *Recommendation: keep separate, and let an
+> operator who disagrees lower the correlation floor.*
 
 ---
 
@@ -89,8 +128,10 @@ The first pass was rule-based, and it is demonstrably wrong in places:
 
 | Sub-category | Rule said | Should be | Why it failed |
 |---|---|---|---|
-| `BSE Top 10 Banks` | BROAD | **SECTOR / BANKING** | "top 10" matched a broad-market rule first |
-| `Nifty 500 Healthcare` | BROAD | **SECTOR / PHARMA** | "nifty 500" matched before "healthcare" |
+| `BSE Top 10 Banks` | INDEX | **SECTOR / BANKING** | "top 10" matched a broad-market rule first |
+| `Nifty 500 Healthcare` | INDEX / BROAD_MARKET_500 | **SECTOR / PHARMA** | "nifty 500" matched before "healthcare" — the symbol `HEALTHCARE` landed in a broad-market pool |
+| `BSE MidSmall Private Banks` | INDEX / MIDSMALLCAP | **SECTOR / BANKING** | "midsmall" matched before "banks" |
+| `Nifty LargeMidcap 250` | INDEX / MIDCAP | **INDEX / LARGEMIDCAP** | "midcap" matched before "largemid" |
 | `Nifty Dividend Opportunities 50` | SECTOR | **FACTOR** | "dividend" was treated as a sector word |
 | `BSE 500 Dividend Leaders 50` | BROAD | **FACTOR** | same |
 | `Nifty 50 Shariah` | BROAD | arguable — a screened variant | no rule covers screens |
@@ -125,7 +166,8 @@ Cost at these pool sizes is trivial — the largest pool is 9 liquid banking ETF
 
 | ID | Item |
 |---|---|
-| Q-196 | Confirm the three-bucket split (BROAD / SECTOR / FACTOR) and the 15 sector groups |
-| Q-197 | Should BROAD ETFs be harvestable against each other (e.g. one Nifty 50 tracker for another)? *(Rec: yes — 22 Nifty 50 ETFs exist and they are near-perfect proxies, arguably the cleanest harvest in the whole universe)* |
+| Q-196 | Confirm the three-bucket split (INDEX / SECTOR / FACTOR), the 9 index buckets and the 15 sector groups |
+| ~~Q-197~~ | ✅ Resolved by D-100 — index ETFs harvest within their own market-cap segment, not across INDEX as a whole |
+| Q-200 | Merge NEXT_50 into LARGECAP_50? Correlation sits at roughly 0.85–0.90, right on the floor *(Rec: keep separate)* |
 | Q-198 | Should FACTOR ETFs be harvestable within-factor only (momentum→momentum), or across factors? *(Rec: within-factor only)* |
 | Q-199 | Sector groups are a maintained mapping. Who adds a group when NSE lists a new theme — the LLM proposes and the operator confirms, same as classification? |

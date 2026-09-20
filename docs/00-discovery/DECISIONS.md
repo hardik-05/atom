@@ -1131,3 +1131,21 @@ trading ledger, principal, cost of capital, profit, or reconciliation. No modell
 | Q-197 | Should BROAD ETFs harvest against each other (one Nifty 50 tracker for another)? |
 | Q-198 | FACTOR harvesting within-factor only, or across factors? |
 | Q-199 | Who maintains sector groups as NSE lists new themes? |
+
+**D-100 — INDEX ETFs bucket by market-cap segment; there is no single "broad" pool.**
+(Q-197 closed, and it corrects D-096.) The first pass demanded sector precision for SECTOR while
+leaving 100 index trackers in one pool, which would have permitted swapping a Nifty 50 ETF for a
+Smallcap 250 ETF — booking the loss while completely changing market-cap exposure.
+
+Nine index buckets: **LARGECAP_50** (32 ETFs, 7 liquid) · **MIDCAP** (16/9) · **SMALLCAP** (8/5) ·
+**BROAD_MARKET_500** (7/4) · **NEXT_50** (15/3) · **NIFTY_100** (6/2) · **NIFTY_200** (1/0) ·
+**MSCI_INDIA** (4/0) · **IPO_THEME** (2/0).
+
+LARGECAP_50 merges Nifty 50 and BSE Sensex, which track the same segment at ~0.99 correlation;
+the 0.85 floor validates every pair independently, so a wrong merge is caught rather than
+executed. Its seven liquid trackers make it one of the three cleanest harvest pools alongside
+GOLD (17) and SILVER (14).
+
+The bucket name **BROAD is renamed INDEX** throughout.
+
+| Q-200 | Merge NEXT_50 into LARGECAP_50? Correlation ~0.85–0.90, right on the floor *(Rec: keep separate)* |
