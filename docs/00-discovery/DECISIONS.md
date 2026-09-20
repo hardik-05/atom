@@ -1149,3 +1149,29 @@ GOLD (17) and SILVER (14).
 The bucket name **BROAD is renamed INDEX** throughout.
 
 | Q-200 | Merge NEXT_50 into LARGECAP_50? Correlation ~0.85–0.90, right on the floor *(Rec: keep separate)* |
+
+**D-101 — Classification is evaluated sector-first, then factor, then index. Zero ETFs are
+unbucketed.** All 350 land in a defined bucket. The ordering is itself the fix for the
+keyword bugs in earlier passes: `BSE Top 10 Banks` and `BSE MidSmall Private Banks` now resolve
+correctly to SECTOR/BANKING. Two proposed buckets, `INDEX/CONCENTRATED_TOP_N` and
+`INDEX/MIDSMALLCAP`, are **empty and removed** — they existed only to catch what the ordering
+now places correctly.
+
+*Two buckets are not genuine correlation pools and need fixing (Q-201): `SECTOR/OTHER_THEMATIC`
+is a catch-all mixing Tourism, MNC and Services Sector, and `SECTOR/MANUFACTURING` mixes
+Manufacturing with Nifty Commodities. Neither currently matters — no member is liquid — but a
+fake pool is a latent correctness bug.*
+
+**D-102 — FACTOR splits by factor type, the same correction as D-100.** 57 ETFs sat in one
+pool; momentum, value, quality and low-volatility are different and often inversely-behaving
+exposures, so harvesting between them would swap the factor while appearing to preserve it.
+Eleven sub-buckets: MOMENTUM (10 ETFs, **7 liquid** — the only reliably harvestable factor) ·
+VALUE (9/2) · QUALITY (8/2) · LOW_VOLATILITY (6/2) · MOMENTUM_QUALITY_COMBO (5/2) · ALPHA (3/2) ·
+EQUAL_WEIGHT (9/1) · DIVIDEND (4/0) · SHARIAH, ESG, GROWTH (1/0 each).
+
+**Full harvest viability: 12 buckets are reliable, 13 are thin, and 14 cannot be harvested at
+all.** Every holding in the last group can never have its loss booked while keeping exposure,
+and the harvest screen must say so against the holding rather than omitting it.
+
+| Q-201 | Dissolve `OTHER_THEMATIC` into single-member buckets and split `Nifty Commodities` out of `MANUFACTURING`? |
+| Q-202 | Split factor buckets by market-cap segment too? *(Rec: no — it would cut the only healthy factor pool from 7 to ~4 and ~3; let the 0.85 correlation floor filter instead)* |

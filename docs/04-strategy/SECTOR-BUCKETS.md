@@ -171,3 +171,98 @@ Cost at these pool sizes is trivial — the largest pool is 9 liquid banking ETF
 | Q-200 | Merge NEXT_50 into LARGECAP_50? Correlation sits at roughly 0.85–0.90, right on the floor *(Rec: keep separate)* |
 | Q-198 | Should FACTOR ETFs be harvestable within-factor only (momentum→momentum), or across factors? *(Rec: within-factor only)* |
 | Q-199 | Sector groups are a maintained mapping. Who adds a group when NSE lists a new theme — the LLM proposes and the operator confirms, same as classification? |
+
+---
+
+## 7. Full census — every one of the 350 ETFs is bucketed (D-101)
+
+**Unbucketed: 0.** Every ETF in the NSE universe lands in a defined bucket once classification
+is evaluated **sector-first, then factor, then index**. That ordering is itself the fix for the
+bugs in §4: `BSE Top 10 Banks` and `BSE MidSmall Private Banks` both resolve correctly to
+SECTOR/BANKING instead of being mis-read as market-cap segments.
+
+| Bucket | ETFs | Liquid | | Bucket | ETFs | Liquid |
+|---|---|---|---|---|---|---|
+| FACTOR *(split, §8)* | 57 | 18 | | SECTOR/FINANCIAL_SERVICES | 5 | 3 |
+| EXCLUDED_DEBT | 38 | 14 | | SECTOR/PSU | 5 | 2 |
+| SECTOR/BANKING | 37 | 9 | | SECTOR/AUTO | 5 | 5 |
+| INDEX/LARGECAP_50 | 32 | 7 | | SECTOR/MANUFACTURING | 4 | 0 |
+| COMMODITY/GOLD | 26 | 17 | | SECTOR/OTHER_THEMATIC | 4 | 0 |
+| COMMODITY/SILVER | 19 | 14 | | INDEX/MSCI_INDIA | 4 | 0 |
+| INDEX/NEXT_50 | 15 | 3 | | SECTOR/DEFENCE | 3 | 3 |
+| INDEX/MIDCAP | 15 | 9 | | SECTOR/CHEMICALS | 2 | 1 |
+| SECTOR/IT | 10 | 4 | | SECTOR/INTERNET | 2 | 1 |
+| INDEX/SMALLCAP | 8 | 5 | | INDEX/IPO_THEME | 2 | 0 |
+| SECTOR/PHARMA_HEALTHCARE | 8 | 5 | | INDEX/LARGEMIDCAP | 1 | 0 |
+| SECTOR/FMCG_CONSUMPTION | 8 | 1 | | INDEX/NIFTY_200 | 1 | 0 |
+| SECTOR/INFRA | 8 | 4 | | EXCLUDED_HYBRID | 1 | 0 |
+| GLOBAL | 6 | 5 | | | | |
+| SECTOR/ENERGY | 6 | 3 | | | | |
+| SECTOR/METALS | 6 | 3 | | | | |
+| INDEX/NIFTY_100 | 6 | 2 | | | | |
+| INDEX/BROAD_500 | 6 | 3 | | | | |
+
+**Two proposed buckets are empty and are removed:** `INDEX/CONCENTRATED_TOP_N` and
+`INDEX/MIDSMALLCAP`. Both existed only to catch ETFs that the sector-first ordering now places
+correctly.
+
+### Two buckets are not real correlation pools
+
+| Bucket | Members | Problem |
+|---|---|---|
+| **SECTOR/OTHER_THEMATIC** | Nifty India Tourism, Nifty MNC ×2, Nifty Services Sector | **A catch-all, not a sector.** Tourism and MNC have no common exposure. Harvesting between them would swap one theme for an unrelated one |
+| **SECTOR/MANUFACTURING** | Nifty India Manufacturing ×3, **Nifty Commodities** | Manufacturing and Commodities are different exposures sharing a bucket only through a keyword |
+
+*Neither currently matters — no member is liquid, so none enters the universe. But a fake pool
+is a latent correctness bug, so:* **recommended fix — dissolve `OTHER_THEMATIC` into
+single-member buckets (explicitly "no proxy available"), and split `Nifty Commodities` out of
+MANUFACTURING.* (Q-201)
+
+---
+
+## 8. FACTOR must split too — the same error, found again (D-102)
+
+The INDEX correction in §2A applies equally here, and was missed for the same reason: **57 ETFs
+sat in one FACTOR pool.** Momentum, value, quality and low-volatility are *different, often
+inversely-behaving* exposures. Harvesting a momentum ETF into a value ETF would swap the factor
+while appearing to preserve it — precisely the error the bucket scheme exists to prevent.
+
+| Factor sub-bucket | ETFs | Liquid | Harvest |
+|---|---|---|---|
+| **MOMENTUM** | 10 | **7** | ✅ HDFCMOMENT, MOM30IETF, MOMENTUM30, MOMENTUM50, MOMMIDCAP, MOMOMENTUM, SBIMIDMOM |
+| VALUE | 9 | 2 | ⚠️ NV20IETF, VAL30IETF |
+| QUALITY | 8 | 2 | ⚠️ FLEXIADD, NIFTYQLITY |
+| LOW_VOLATILITY | 6 | 2 | ⚠️ ALPL30IETF, LOWVOLIETF |
+| MOMENTUM_QUALITY_COMBO | 5 | 2 | ⚠️ MIDSMALL, SMALLCAP |
+| ALPHA | 3 | 2 | ⚠️ ALPHA, ALPHAETF |
+| EQUAL_WEIGHT | 9 | **1** | ❌ no proxy |
+| DIVIDEND | 4 | **0** | ❌ no proxy |
+| SHARIAH / ESG / GROWTH | 1 each | **0** | ❌ no proxy |
+
+**Only MOMENTUM is reliably harvestable** among factor ETFs. Everything else is thin or
+impossible.
+
+> A further question this raises (Q-202): should a factor bucket also be split by **market-cap
+> segment**? `MOMENTUM` currently mixes `Nifty 200 Momentum 30` with `Nifty Midcap 150 Momentum
+> 50` — same factor, different cap. *Recommendation: yes for correctness, but it would reduce
+> the only healthy factor pool from 7 to roughly 4 and 3. The 0.85 correlation floor may be the
+> better filter here — let it decide rather than pre-splitting.*
+
+---
+
+## 9. Harvest viability — the complete picture
+
+**Reliably harvestable (≥4 liquid proxies):** GOLD 17 · SILVER 14 · BANKING 9 · MIDCAP 9 ·
+LARGECAP_50 7 · MOMENTUM 7 · PHARMA/HEALTHCARE 5 · AUTO 5 · SMALLCAP 5 · GLOBAL 5 · IT 4 ·
+INFRA 4
+
+**Thin (2–3):** NEXT_50 · BROAD_500 · ENERGY · METALS · FINANCIAL_SERVICES · DEFENCE · PSU ·
+NIFTY_100 · VALUE · QUALITY · LOW_VOLATILITY · ALPHA · MOMENTUM_QUALITY_COMBO
+
+**Impossible (0–1):** FMCG_CONSUMPTION · CHEMICALS · INTERNET · MANUFACTURING · OTHER_THEMATIC ·
+MSCI_INDIA · IPO_THEME · NIFTY_200 · LARGEMIDCAP · EQUAL_WEIGHT · DIVIDEND · SHARIAH · ESG ·
+GROWTH
+
+**14 buckets cannot be harvested at all.** Every holding in one of them is a position that can
+never have its loss booked while keeping exposure — which the harvest screen must state plainly
+against the holding, with the reason.
