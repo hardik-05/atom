@@ -119,6 +119,10 @@ be NULL.**
 - Adding a new config key to the registry **invalidates every existing account** until the
   operator fills it in. That is intentional: a new knob must be a deliberate choice per
   account, not silently defaulted across the estate.
+- **Blocking is scoped to the affected trading account, never the estate (D-067).** If
+  Investor A's Dhan account is missing a value, only *that* account is blocked. Investor A's
+  Upstox account and Investor B's accounts run normally. A run covering several accounts
+  proceeds for the complete ones and reports the blocked ones individually.
 - The "Default" column in the registry below is therefore a **suggested starting value shown
   in the UI when the operator first creates the row** — a pre-filled form field they must
   actively accept. It is never applied by the engine.
@@ -218,5 +222,7 @@ override. Changing a value takes effect from the next run.
 |---|---|
 | ~~Q-153~~ | ✅ Withdrawn — there is no resolution order; every key is explicitly set (D-038) |
 | ~~Q-155~~ | ✅ Resolved by D-040 — single admin login, no other roles |
+| ~~Q-156~~ | ✅ Resolved by D-068 — NULL means "do not buy this category"; sells continue |
+| ~~Q-157~~ | ✅ Resolved by D-067 — a new key blocks only the accounts missing it |
 | Q-156 | Confirm NULL semantics per key: does NULL on `trade_amount_inr` mean "never buy this category" while sells continue, i.e. identical to `category_enabled = false`? |
 | Q-157 | When a new config key is added to the registry, block every account until filled, or allow a grace mode? |

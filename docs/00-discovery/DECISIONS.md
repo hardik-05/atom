@@ -837,3 +837,135 @@ an unfilled sell is cancelled and re-placed next run. The contract is therefore:
 | Q-186 | Small-ratio splits (4:5 = −20%) sit on the threshold — accept, or add a feed later? |
 | Q-187 | Should a holding in a deactivated ETF still get its sell order? *(Rec: yes — only buying is blocked)* |
 | Q-188 | Threshold check on adjusted or raw close? *(Rec: whatever the broker returns)* |
+
+---
+
+## Round 9 — 2026-09-20 (answers to PENDING-QUESTIONS 56–117)
+
+### Config
+- **D-067 — Config blocking is scoped per trading account, not estate-wide.** A missing value on
+  Investor A's Dhan account blocks **only that account**; A's Upstox and B's accounts run
+  normally. A multi-account run proceeds for the complete accounts and reports the blocked ones
+  individually. Adding a new config key blocks only the accounts missing it. *(Refines D-038.)*
+- **D-068** Config changes are versioned with **who, when and timestamp**. NULL means "do not
+  buy this category"; **sells continue**.
+
+### Console
+- **D-069a** Daily Status: 10 rows, greyed beyond depth. History via a date picker over all data.
+- **D-069b — No dedicated Elastic IP for the console.** Use the instance's default public IP.
+  *(Supersedes the Q-068 recommendation — see ⚠️ below, this has a consequence.)*
+- **D-069c** UI: React + TypeScript + Tailwind, served by the Python engine. Must be **fast and
+  professional, not clumsy**, with **dark and light modes**. Desktop-first, but **responsive**
+  so it opens usably on mobile and iPad, with a desktop-mode option on other devices.
+- **D-069d** Auth: Supabase Auth, Google sign-in restricted to named emails, password fallback.
+  **2FA is a setting** — enabled if the operator wants it, not mandatory.
+
+### Security
+- **D-069e** Supabase RLS from day one. **No PAN or bank details, ever.** Log redaction of
+  tokens and secrets, with a test. Every operator action audited. Global kill switch.
+- **D-069f — Spend caps are per (investor × broker × account)**, matching the config grain.
+
+### Harvesting
+- **D-070a** STCG rate config, default 20%. Correlation = **Pearson on daily log returns**.
+  Minimum correlation **0.85, as a config value**. Proxy must pass the volume filter. Proxy must
+  be a **different ISIN** — hard constraint.
+- **D-070b — Partial failure waits for the operator.** If the sell fills but the proxy buy
+  fails, alert immediately, mark the chain INCOMPLETE, and **do nothing further until the
+  operator decides**. They may retry (liquidity or funds having changed) or abandon it.
+- **D-070c — Offset ATOM's gains only, but display all gains.** The screen shows **total
+  realised gain**, split into **ATOM's gain** and **other gain**. Only ATOM's gain drives the
+  harvesting process; other gains are shown for information so the operator can act on them
+  manually.
+- **D-070d** No frequency limit. Operator-triggered, individually approved. Expected cadence is
+  monthly or quarterly, and more valuable in falling markets than rising ones.
+
+### Orders
+- **D-071a** Poll 5 minutes for a fill, then proceed and leave the order resting.
+- **D-071b — Partial fills: quantity changes, average buy price does not.** Expected to be rare
+  given the liquidity filter. If half fills at target and half remains, the next day's sell
+  covers the remaining quantity **at the same average buy price**, re-placed per the normal
+  cycle.
+- **D-071c** Reconciliation at the next run plus a Telegram message covers fills that happened
+  while the engine was down. Expectation is that ~99.99% of orders fill.
+
+### Reporting
+- **D-072a — Period selector offers Indian FY, calendar month, quarter, and a custom date
+  range.** Not one basis — a dropdown.
+- **D-072b** DP charges are a cost of the trade and are **attributed back to the sell** for
+  profit (D-061), even when the broker reports them days later in the ledger.
+- **D-072c — Broker ledgers are pulled automatically, once a day**, updating a local ledger.
+- **D-072d** CSV export. No benchmark comparison. Log filename:
+  `<investor>_<broker>_<run_id>_<date>.log`.
+
+### Logging
+- **D-072e** Google Drive via a service account writing to a shared folder. **Gzip above 10 MB**
+  (raised from 5 MB — these files are expected to be kilobytes).
+
+### Database
+- **D-073a — The Supabase project does not exist and must be created from scratch.**
+- **D-073b** One schema with table prefixes. Migrations as SQL files in the repo, applied via
+  the Supabase CLI — **nothing is ever executed directly against the database.**
+- **D-073c** `NUMERIC(_,4)`. Timestamps `timestamptz` in UTC, displayed IST, plus an IST
+  `trade_date` column. FIFO lot matching. Weekly `pg_dump` to S3. Separate dev project.
+- **D-073d — Purge diagnostic logs only. Trade and report data is retained for years.** Manual
+  purge if ever wanted; no automated feature for it.
+
+### Testing and ops
+- **D-074a** Unit tests on strategy maths, contract tests per broker, full dry run, then
+  ₹1,000-size live trades. The dry run is the end-to-end test of the whole application.
+- **D-074b — No backtest harness in v1.** Moved to
+  [`V2-BACKLOG.md`](./V2-BACKLOG.md).
+- **D-074c — 🔴 Broker terms and conditions have NOT been checked.** Each broker's T&C must be
+  **manually researched before development begins**, to confirm automated order placement is
+  permitted. Added to the round 2 broker research scope as a blocking item.
+- **D-074d** Free uptime monitor on the static site.
+
+### Dry run
+- **D-075a** Paper fill model: **complete fills only, no partial fills.**
+- **D-075b — No dry-run vs live comparison.** Dry run is a phase (months 1–2), retired once live.
+  Paper portfolios are kept indefinitely but will naturally go quiet, since paper funds are
+  operator-topped-up and simply run out.
+- **D-075c** A dry run may run **without EC2**, using Yahoo Finance data, since no static IP is
+  needed.
+
+### Cost of capital
+- **D-076a** Simple interest, **Actual/365**, accrual base = **original cost, all-in** including
+  charges.
+- **D-076b — Rate changes apply forward only.** A dated rate series per trading account;
+  **history is never restated**.
+- **D-076c — The sell day counts as a held day.** Buy day 1, sell day 5 → **5 deployed days**;
+  settlement runs from day 6 to the credit date. `deployed_days = sell − buy + 1`,
+  `settlement_days = credit − sell`.
+- **D-076d** Opening balance is **fetched from the broker funds API**, not entered by hand.
+
+---
+
+## ⚠️ Two consequences that need a decision
+
+**1. D-069b (no dedicated Elastic IP) breaks the console URL.**
+An EC2 instance's auto-assigned public IPv4 **changes every time it is stopped and started**.
+Since ATOM's instance is stopped daily (D-055a), the console would be at a different address
+every day, and no DNS record or bookmark would survive. Three ways out:
+
+| Option | Cost | Assessment |
+|---|---|---|
+| **(a)** Lambda updates a Route 53 A record on each boot | **Free** (Route 53 hosted zone ~$0.50/mo) | Keeps the domain stable, no extra IP. **Recommended** |
+| **(b)** Serve the console on one of the two broker-whitelisted Elastic IPs | Free — already paid for | Works: whitelisting governs *outbound* source IP, inbound web traffic is unaffected. Slightly muddles the IP's purpose |
+| **(c)** Accept a changing IP | Free | The operator reads the new address from the Telegram `/status` reply each day. Ugly but functional, and no TLS certificate can be issued for a bare IP |
+
+*Raised as **Q-190**. Option (a) also solves TLS, which (c) cannot.*
+
+**2. Free secrets storage (Q-073 reopened).**
+Secrets Manager was rejected on cost. Options that are genuinely free:
+
+| Option | Cost | Assessment |
+|---|---|---|
+| **AWS SSM Parameter Store, Standard tier, SecureString** | **Free** — standard parameters have no charge, and the AWS-managed `aws/ssm` KMS key is free (only customer-managed keys cost $1/mo) | Purpose-built for this, IAM-controlled, audited. **Recommended** |
+| Encrypted in Supabase (D-055d) | Free | Already the recorded decision. Needs app-level encryption, and the encryption key still has to live somewhere — which is the same problem one level down |
+| Docker image / environment variables | Free | Secrets end up in the image or the ECS task definition. Not recommended |
+
+*Raised as **Q-191**. SSM Parameter Store solves the key-of-the-key problem that encrypted-in-Supabase does not: the instance role grants access, so there is no bootstrap secret to store.*
+
+| Q-189 | Confirm settlement counts the credit date itself, with idle starting the day after |
+| Q-190 | Console addressing — Route 53 updated on boot, reuse a trading EIP, or accept a changing IP |
+| Q-191 | Confirm SSM Parameter Store (free) over encrypted-in-Supabase for secrets |

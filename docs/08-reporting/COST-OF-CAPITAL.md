@@ -317,37 +317,44 @@ Same structure per account (D-037), plus an investor-level roll-up.
 
 **~~Q-162~~ ✅ Resolved by D-046** — both buckets, per §2A.
 
-**Q-163 🟠 — Simple or compound?** Simple interest at `V × r / 365` per day, or compounding
-on unpaid accrued interest?
-*Recommendation: simple. Matches how a per-annum facility is typically charged, and keeps the
-per-lot arithmetic auditable.*
+**~~Q-163~~ ✅ Resolved — simple interest.** `V × r / 365` per day, never compounding on
+accrued-but-unpaid interest. Confirmed for the borrowed-capital facility, which is the only
+interest in the system.
 
-**Q-164 🟠 — Day-count convention.** Actual/365, actual/360, or 30/360?
-*Recommendation: **Actual/365**, standard for INR facilities, and it matches the stated
-"interest runs on all seven days".*
+**~~Q-164~~ ✅ Resolved — Actual/365.**
 
 **~~Q-165~~ ✅ Resolved by D-053 — the rate is per trading account**, i.e. per
 (investor, broker). Person A's rate at Broker A may differ from Person A's at Broker B. This
 keeps cost of capital on the same config grain as everything else, and means accruals are
 computed per trading account and rolled up to the investor for consolidated reporting.
 
-**Q-166 🟠 — Can the rate change over time?** If the facility re-prices (say 10% → 11% in
-March), historical accruals must not be retroactively restated.
-*Recommendation: store the rate as a **dated series**, and accrue each day at the rate in
-force that day. Materially more correct, and only slightly more work.*
+**~~Q-166~~ ✅ Resolved — dated rate series, applied forward only.** A rate change takes
+effect from its effective date onward. **Historical accruals are never restated** — days
+already accrued keep the rate that was in force. Storage is a dated series per trading
+account (D-053).
 
-**Q-167 🟠 — Accrual base: cost or current value?** A lot bought at ₹10,000 now worth ₹9,000 —
-does it accrue on ₹10,000 or ₹9,000?
-*Recommendation: **cost**. You borrowed ₹10,000; the market price of what you bought with it
-does not change what you owe.*
+**~~Q-167~~ ✅ Resolved — original cost**, not current value.
 
-**Q-168 🟡 — Does the sell day count?** Buy 1 Jan, sell 8 Jan — 7 days or 8?
-*Recommendation: count the buy day, exclude the sell day (7 days), the usual convention.*
+**~~Q-168~~ ✅ Resolved (D-070) — the sell day IS counted.**
 
-**Q-169 🟡 — Are charges included in the accrual base?** Brokerage and STT are also paid from
-borrowed money.
-*Recommendation: yes — accrue on the all-in cost, not the bare traded value. Small, but free
-to get right.*
+> "You buy on day one, so you count your cost of capital starting from day one. At day five
+> you make a sale and clear off. So ideally you have held it for five days, so the sale day
+> should be considered in the cost of capital interest. And probably day six will be your
+> settlement date — so the sixth day's cost comes under a different heading."
+
+| Phase | Days | Bucket |
+|---|---|---|
+| Held | buy_date **… sell_date inclusive** | DEPLOYED, per lot |
+| In settlement | sell_date + 1 **… credit_date inclusive** | SETTLEMENT |
+| Available | credit_date + 1 onward | IDLE |
+
+`deployed_days = sell_date − buy_date + 1` · `settlement_days = credit_date − sell_date`
+
+Buy day 1, sell day 5, credited day 6 → **5 deployed days, 1 settlement day**, no gap and no
+overlap. *(Q-189: confirm the boundary — settlement counts the credit date itself, and idle
+starts the day after.)*
+
+**~~Q-169~~ ✅ Resolved — yes, the all-in cost** including brokerage, STT and the rest.
 
 **~~Q-171~~ ✅ Resolved by D-047** — principal only; retained profit does not accrue.
 **~~Q-172~~ ✅ Resolved by D-048** — neither. Proceeds sit in a third SETTLEMENT bucket from
@@ -366,7 +373,5 @@ not attribute a credit to a specific trade. Tracked in the broker capability mat
 **rejected at entry** with a validation message. The operator must either reduce the amount or
 reclassify the excess as `CAPITAL_OUT`.
 
-**Q-173 🟠 — How is the opening balance anchored?**
-Reconstruction (§2A.4) needs a starting point per trading account: a date and a known balance.
-*Recommendation: the operator enters an opening balance and date at onboarding, and the
-system reconciles forward from there.*
+**~~Q-173~~ ✅ Resolved — call the broker's funds API.** The opening balance is fetched from
+the account rather than typed in, and reconstruction proceeds forward from that reading.
