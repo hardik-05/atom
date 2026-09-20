@@ -1079,3 +1079,55 @@ Full analysis in [`../09-security/SEBI-ALGO-COMPLIANCE.md`](../09-security/SEBI-
 
 | Q-192 | 🔴 Person B's relationship to the operator — determines whether the family exemption covers them |
 | Q-193 | Q-186: add the peer-comparison discriminator for corporate actions, or accept the blind spot? |
+
+---
+
+## Round 13 — 2026-09-20
+
+**D-093 — Averaging rules.**
+- Loss buckets (5%, 10%) are **configurable**, per trading account × category.
+- **No limit on how many times** a position may be averaged.
+- **Maximum one lot per instrument per day.** If `trade_amount_inr` is ₹10,000, a security can
+  be averaged by at most ₹10,000 in a day.
+- Averaging **respects the NAV gate** (D-034b) and **respects `category_enabled`**.
+- Funds follow D-042 — place the order and let the broker reject it.
+
+**D-094 — Averaging is blocked in a category where the algo already bought today.**
+Averaging exists to deploy capital when the depth/skip rules produced no buy. If the daily run
+*did* buy in that category, averaging is redundant.
+- The Average option is **still shown** on screen.
+- Tapping it raises a popup: *"already bought by the daily run, hence no buy"*.
+- The popup carries an **override**. On override, the average order is placed.
+
+*So the rule is advisory-with-override, not a hard block — the operator keeps final say, but
+cannot trip over it by accident.*
+
+**D-095 — Correlation is computed on demand only**, when a harvest proposal is requested. Never
+scheduled, never cached on a timer.
+
+**D-096 — Correlation pools are sector-restricted.** An auto ETF is correlated against auto
+ETFs only, never against a Nifty 50 ETF. Equity splits **BROAD / SECTOR / FACTOR**, and SECTOR
+splits further into ~15 sector groups. Proxies must share a pool, pass the volume filter, and
+carry a different ISIN. Analysis in
+[`../04-strategy/SECTOR-BUCKETS.md`](../04-strategy/SECTOR-BUCKETS.md).
+
+*Finding: **five sector groups cannot be harvested at all** — FMCG/Consumption, Chemicals,
+Internet, Manufacturing and Other Thematic have one liquid ETF or none, so no different-ISIN
+proxy exists. The harvest screen must show "no proxy available" with the reason rather than
+silently omitting those holdings. Gold (17 liquid), Silver (14), Banking (9), Pharma (5) and
+Auto (5) harvest reliably.*
+
+**D-097 — `peer_min_count` is a config value, default 3, and may be set as low as 1.**
+(Q-194 closed.) The operator may widen or narrow the peer requirement at will.
+
+**D-098 — The three-stage lifecycle applies to corporate-action blocks only.** (Q-195 closed.)
+Freezes and exclusions are deliberate operator choices and need no review queue.
+
+**D-099 — Dividends are out of scope entirely.** (Gap closed.) ETF distributions are credited
+to the investor's **bank account, not the broker funds account**, so they never touch the
+trading ledger, principal, cost of capital, profit, or reconciliation. No modelling required.
+
+| Q-196 | Confirm the BROAD/SECTOR/FACTOR split and the 15 sector groups |
+| Q-197 | Should BROAD ETFs harvest against each other (one Nifty 50 tracker for another)? |
+| Q-198 | FACTOR harvesting within-factor only, or across factors? |
+| Q-199 | Who maintains sector groups as NSE lists new themes? |
