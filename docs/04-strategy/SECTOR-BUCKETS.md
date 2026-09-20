@@ -252,6 +252,13 @@ impossible.
 
 ## 9. Harvest viability — the complete picture
 
+> ⚠️ **SUPERSEDED BY D-112.** The counts in this section were computed with a liquidity
+> filter applied to proxies, which was wrong: bucketing is purely tracking-based, and a dormant
+> ETF tracking the same index is still a valid proxy. On the corrected basis **262 of 311
+> tradable ETFs (84%) have a same-index proxy**, 29 have a same-group proxy, and only **20**
+> have none. Liquidity is handled at execution as an advisory with override (D-113).
+
+
 **Reliably harvestable (≥4 liquid proxies):** GOLD 17 · SILVER 14 · BANKING 9 · MIDCAP 9 ·
 LARGECAP_50 7 · MOMENTUM 7 · PHARMA/HEALTHCARE 5 · AUTO 5 · SMALLCAP 5 · GLOBAL 5 · IT 4 ·
 INFRA 4

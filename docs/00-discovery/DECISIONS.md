@@ -1289,3 +1289,54 @@ failing.
 | Q-204 | Block a classifier run while a previous change set has undecided items? |
 | Q-205 | Show unassigned ETFs on Daily Status greyed, or hide them? |
 | Q-206 | Confirm `harvest_proxy_volume_threshold` starting value of 20,000 units |
+
+### 🔴 D-112 — Bucketing is purely tracking-based. Liquidity plays no part.
+*(Corrects D-107 and supersedes D-110.)*
+
+> "While creating buckets do not consider liquidity. Liquidity is a config and might change, and
+> several which are not active might get active. Bucketing should be purely based on tracking."
+
+Correct, and it was a real leak in the taxonomy: a dormant ETF that gains volume next quarter is
+**the same instrument tracking the same index** — its bucket should never have depended on
+yesterday's turnover. Peer counts are now computed over **all** ETFs in a pool, and volume is
+carried as `VOLUME_INFO_ONLY` / `LIQUID_INFO_ONLY`, informational columns that no logic reads.
+
+**The effect is large.** Proxy availability across the 311 tradable ETFs:
+
+| | Liquidity-filtered (wrong) | Tracking-only (correct) |
+|---|---|---|
+| TIER 1 — same index | 92 | **262 (84%)** |
+| TIER 2 — same group | 22 | 29 |
+| No proxy | 13 of 127 liquid | **20 of 311** |
+
+The earlier "14 buckets cannot be harvested at all" finding was an artefact of the liquidity
+filter and is **withdrawn**. Only **20 ETFs** are genuine sole trackers of a sole-member group —
+led by ALPL30IETF, ALPHAETF, FLEXIADD — and for those nothing can be done.
+
+`harvest_proxy_volume_threshold` (D-110) is therefore **withdrawn as a bucketing concept**. It
+survives only as the advisory limit in D-113.
+
+### D-113 — Liquidity is an execution-time advisory with an operator override
+
+Liquidity is checked when an order is about to be placed, not when a taxonomy is built, and it
+**warns rather than blocks**:
+
+| Flow | Behaviour |
+|---|---|
+| **Averaging** | If the security is below the account's current volume limit, the popup shows it as **illiquid**, with the observed volume and the limit. The operator can **cancel** or **override and proceed** |
+| **Harvest proxy** | If the best-correlated proxy is below the limit, it is shown **marked illiquid**. The operator can cancel the harvest or **override and buy it anyway** to book the tax loss |
+
+> "User has the option to cancel the averaging process, or override and buy a security for tax
+> loss even if it does not match the liquidity constraint at account level."
+
+This is the same advisory-with-override pattern as D-094 (averaging where the algo already
+bought), and it is the right shape: **an illiquid proxy that books a real tax loss may well be
+worth buying**, and only the operator can weigh that. The system surfaces the fact and records
+the override in the audit trail (D-069e) and the run log (D-035).
+
+*Note: the daily buy path is unchanged — the volume filter still governs **universe
+construction** (D-016/D-027), because that is about which instruments the strategy trades
+routinely. The override applies to the two discretionary flows only.*
+
+| Q-206 | ~~Confirm proxy threshold~~ — ✅ withdrawn by D-112 |
+| Q-207 | Should an override be permitted on the daily buy path too, or stay limited to averaging and harvesting? *(Rec: stay limited — the daily path is automated and an override there has no operator watching it)* |

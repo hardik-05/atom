@@ -15,7 +15,11 @@ Usage:  python3 scripts/build_etf_buckets.py <input.csv> <output.csv>
 """
 import csv, re, sys, collections
 
-VOLUME_THRESHOLD = 100_000          # D-027, units traded
+# D-112: BUCKETING IS PURELY TRACKING-BASED. Liquidity NEVER decides bucket
+# membership or peer counts -- it is a config that changes, and a dormant ETF may
+# become active. Volume is carried through as INFORMATION only, and the liquidity
+# decision is made at execution time with an operator override (D-113).
+VOLUME_THRESHOLD = 100_000          # informational flag only, D-027
 
 # --- sector groups (D-096), with Q-201 applied ---------------------------------
 SECTOR_GROUPS = [
@@ -147,35 +151,38 @@ def main(src, dst):
             'ATOM_BUCKET': bucket,
             'TIER2_GROUP': group,
             'TIER1_INDEX': normalise_index(r['SUB-CATEGORY']),
-            'VOLUME': int(vol),
-            'LIQUID': 'YES' if vol > VOLUME_THRESHOLD else 'NO',
-            'TRADABLE': 'NO' if bucket == 'EXCLUDED' else ('YES' if vol > VOLUME_THRESHOLD else 'NO'),
+            'VOLUME_INFO_ONLY': int(vol),
+            'LIQUID_INFO_ONLY': 'YES' if vol > VOLUME_THRESHOLD else 'NO',
+            'ASSIGNMENT_STATUS': 'AUTO',
             'LTP': r['LTP'], 'NAV': r['NAV'], 'I_NAV': r['I-NAV'],
             'NOTE': note,
         })
 
-    liquid = [e for e in enriched if e['LIQUID'] == 'YES' and e['ATOM_BUCKET'] != 'EXCLUDED']
-    t1 = collections.Counter(e['TIER1_INDEX'] for e in liquid)
-    t2 = collections.Counter(e['TIER2_GROUP'] for e in liquid)
+    # Peer counts are over ALL ETFs in the pool, regardless of liquidity (D-112).
+    tradable = [e for e in enriched if e['ATOM_BUCKET'] != 'EXCLUDED']
+    t1 = collections.Counter(e['TIER1_INDEX'] for e in tradable)
+    t2 = collections.Counter(e['TIER2_GROUP'] for e in tradable)
 
     for e in enriched:
-        if e['ATOM_BUCKET'] == 'EXCLUDED' or e['LIQUID'] != 'YES':
-            e['HARVEST_PEERS_TIER1'] = e['HARVEST_PEERS_TIER2'] = 0
-            e['HARVEST_VIABLE'] = 'NO'
+        if e['ATOM_BUCKET'] == 'EXCLUDED':
+            e['PEERS_TIER1'] = e['PEERS_TIER2'] = 0
+            e['PROXY_AVAILABLE'] = 'NO'
             continue
         p1 = t1[e['TIER1_INDEX']] - 1
         p2 = t2[e['TIER2_GROUP']] - 1
-        e['HARVEST_PEERS_TIER1'] = p1
-        e['HARVEST_PEERS_TIER2'] = p2
-        e['HARVEST_VIABLE'] = 'TIER1' if p1 >= 1 else ('TIER2' if p2 >= 1 else 'NO')
+        e['PEERS_TIER1'] = p1
+        e['PEERS_TIER2'] = p2
+        e['PROXY_AVAILABLE'] = 'TIER1' if p1 >= 1 else ('TIER2' if p2 >= 1 else 'NO')
 
     cols = ['SYMBOL', 'NSE_CATEGORY', 'NSE_SUB_CATEGORY', 'ATOM_BUCKET', 'TIER2_GROUP',
-            'TIER1_INDEX', 'VOLUME', 'LIQUID', 'TRADABLE', 'HARVEST_PEERS_TIER1',
-            'HARVEST_PEERS_TIER2', 'HARVEST_VIABLE', 'LTP', 'NAV', 'I_NAV', 'NOTE']
+            'TIER1_INDEX', 'PEERS_TIER1', 'PEERS_TIER2', 'PROXY_AVAILABLE',
+            'ASSIGNMENT_STATUS', 'VOLUME_INFO_ONLY', 'LIQUID_INFO_ONLY',
+            'LTP', 'NAV', 'I_NAV', 'NOTE']
     with open(dst, 'w', newline='', encoding='utf-8') as fh:
         w = csv.DictWriter(fh, fieldnames=cols)
         w.writeheader()
-        for e in sorted(enriched, key=lambda x: (x['ATOM_BUCKET'], x['TIER2_GROUP'], -x['VOLUME'])):
+        for e in sorted(enriched, key=lambda x: (x['ATOM_BUCKET'], x['TIER2_GROUP'],
+                                                 -x['VOLUME_INFO_ONLY'])):
             w.writerow({c: e[c] for c in cols})
 
     print(f"wrote {dst}: {len(enriched)} ETFs")
@@ -183,9 +190,9 @@ def main(src, dst):
     print(f"unclassified: {len(unc)}")
     for e in unc:
         print("   ", e['SYMBOL'], '|', e['NSE_SUB_CATEGORY'])
-    v = collections.Counter(e['HARVEST_VIABLE'] for e in enriched if e['LIQUID'] == 'YES'
-                            and e['ATOM_BUCKET'] != 'EXCLUDED')
-    print("harvest viability across liquid tradable ETFs:", dict(v))
+    v = collections.Counter(e['PROXY_AVAILABLE'] for e in enriched
+                            if e['ATOM_BUCKET'] != 'EXCLUDED')
+    print("proxy availability (liquidity-independent):", dict(v))
 
 
 if __name__ == '__main__':
