@@ -969,3 +969,37 @@ Secrets Manager was rejected on cost. Options that are genuinely free:
 | Q-189 | Confirm settlement counts the credit date itself, with idle starting the day after |
 | Q-190 | Console addressing — Route 53 updated on boot, reuse a trading EIP, or accept a changing IP |
 | Q-191 | Confirm SSM Parameter Store (free) over encrypted-in-Supabase for secrets |
+
+---
+
+## Round 10 — 2026-09-20
+
+- **D-077** `Hybrid` ETFs are **excluded**, alongside DEBT. (Q-152 closed.)
+- **D-078 — The console is served on one of the existing broker-whitelisted Elastic IPs.**
+  No third IP is provisioned. Whitelisting governs *outbound* source IP, so serving inbound web
+  traffic on that address does not affect broker access, and the address is stable across
+  stop/start so DNS and TLS both work. (Q-190 closed, option (b).)
+- **D-079 — Secrets live in AWS SSM Parameter Store (Standard tier, SecureString).** Free:
+  standard parameters carry no charge and the AWS-managed `aws/ssm` key is free. Access is
+  granted by the instance role, so there is no bootstrap key to store anywhere.
+  *(Supersedes D-055d, encrypted-in-Supabase.)* (Q-191 closed.)
+- **D-080 — Settlement spans non-trading days, and idle begins only when cash is actually
+  available.** (Q-189 closed.)
+
+  > "Security bought on Monday, sold on Friday — five days deployed. But Friday T+1 is actually
+  > Monday, so Saturday, Sunday and Monday come as settlement, and only when it becomes
+  > available cash does idle start."
+
+  | Phase | Days (worked example) | Count |
+  |---|---|---|
+  | DEPLOYED | Mon (buy) … Fri (sell), inclusive | **5** |
+  | SETTLEMENT | Sat, Sun, **Mon (credit date, inclusive)** | **3** |
+  | IDLE | Tue onward | — |
+
+  `deployed_days = sell − buy + 1` · `settlement_days = credit − sell` · idle starts
+  `credit + 1`.
+
+  **Weekends and holidays accrue in full**, consistent with all-seven-day accrual (D-045), and a
+  settlement spanning a long weekend simply costs more — which is exactly what the bucket exists
+  to reveal. Because `credit_date` is observed, never assumed (D-050), an extended settlement
+  over a holiday cluster is captured automatically.

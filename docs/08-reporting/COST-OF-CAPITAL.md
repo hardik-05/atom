@@ -351,8 +351,21 @@ account (D-053).
 `deployed_days = sell_date − buy_date + 1` · `settlement_days = credit_date − sell_date`
 
 Buy day 1, sell day 5, credited day 6 → **5 deployed days, 1 settlement day**, no gap and no
-overlap. *(Q-189: confirm the boundary — settlement counts the credit date itself, and idle
-starts the day after.)*
+overlap.
+
+**Weekend/holiday edge case (D-080), confirmed by the operator.** Bought Monday, sold Friday,
+T+1 credit therefore landing Monday:
+
+| Phase | Days | Count |
+|---|---|---|
+| DEPLOYED | Mon … Fri inclusive | **5** |
+| SETTLEMENT | Sat, Sun, Mon (credit date inclusive) | **3** |
+| IDLE | Tue onward | — |
+
+Settlement accrues across **non-trading days in full**. A Friday sale costs three days of
+settlement interest against one for a Monday sale — invisible in any P&L, which is precisely
+why this bucket exists. Since `credit_date` is observed rather than assumed (D-050), a
+settlement stretched by a holiday cluster is captured without special-casing.
 
 **~~Q-169~~ ✅ Resolved — yes, the all-in cost** including brokerage, STT and the rest.
 
