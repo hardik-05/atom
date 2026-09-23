@@ -1624,3 +1624,24 @@ prose. PyPI is also reachable from restricted environments where broker sites ar
 
 | Q-222 | Confirm a missing proxy raises rather than defaulting to the instance IP |
 | Q-223 | Verify Zerodha `kiteconnect` and Groww `growwapi` for the same proxy behaviour |
+
+**D-137 — At onboarding, every pre-existing holding is auto-excluded.** (Q-220 closed, option b.)
+ATOM manages **only what ATOM bought**. On connecting an account, everything already held is
+written to the exclusion list in one pass, so the first run cannot place a sell order across
+positions the operator never intended to hand over.
+
+> ⚠️ **Boundary with D-086, which must not be blurred.** D-086 says ATOM *never* auto-creates
+> exclusions — unidentified quantity is reported and the operator decides. That still holds for
+> **ongoing operation**. The auto-exclusion here is a **one-time onboarding snapshot**, scoped to
+> the moment an account is connected.
+>
+> Implemented carelessly, "auto-exclude what ATOM did not buy" would run on every reconciliation
+> and silently exclude every manual purchase forever — quietly stopping ATOM from selling
+> holdings it should sell. **The rule is: auto-exclude once, at account connection. Never
+> again.** Any unidentified quantity appearing afterwards is reported, per D-086.
+
+**D-138 — Cost-of-capital accrual starts at the onboarding date.** (Q-221 closed.) No attempt is
+made to reconstruct historical acquisition dates for pre-existing holdings. The operator's
+reasoning: the accounts this runs on are expected to start empty, so there is no history worth
+digging for. Combined with D-137 — pre-existing holdings are excluded and are not ATOM capital
+anyway — nothing is left to accrue on.
