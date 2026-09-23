@@ -1514,3 +1514,30 @@ Full specification in [`../08-reporting/TAX-ENGINE.md`](../08-reporting/TAX-ENGI
 | Q-217 | Check harvest sales against the s.94(7) dividend-stripping window? |
 | Q-218 | Note dividend income as out of scope but taxable? |
 | Q-219 | Should ATOM propose tax actions beyond harvesting, or stay descriptive? |
+
+---
+
+## Round 18 — 2026-09-23 · Design conversation closed
+
+**D-128 — The full PAN is never stored. A unique internal key groups a user's accounts.**
+(Q-214 closed, D-075 upheld.) Each investor gets an internal `investor_id`, and every broker
+account carries that key. Tax aggregation happens on the key, never on PAN digits. Nothing
+changes in the computation — the key does exactly the grouping work the PAN would have done.
+
+**D-129 — Dividends stay fully out of scope.** (Q-218 closed.) Operator's reasoning, and it is
+correct: dividend income is **income from other sources** taxed at slab. It does **not** consume
+the ₹1.25 lakh capital-gains exemption and does **not** enter the capital-gains set-off pools.
+Excluding it therefore leaves the capital-gains computation exactly right, rather than
+approximately right. ATOM reports capital-gains tax, not total tax, and the screen says so.
+
+**D-130 — Advance tax is deferred to v2.** (Q-216 closed.) Volumes are too small for the
+instalment obligation to matter. Recorded in the v2 backlog with the mechanics, so it is
+recoverable rather than forgotten.
+
+**D-131 — s.94(7) dividend stripping is deferred to v2.** (Q-217 closed.) Parked with its full
+mechanics: a harvest sale within three months either side of a distribution record date has its
+loss **disallowed to the extent of the dividend**. It also needs ETF record-date data that no
+current source provides. Revisit when harvest volume makes a disallowed loss material.
+
+*All three deferrals are in [`V2-BACKLOG.md`](./V2-BACKLOG.md) as V2-9 … V2-12, with enough
+detail to act on without re-deriving the reasoning.*
