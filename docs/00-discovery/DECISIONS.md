@@ -1541,3 +1541,56 @@ current source provides. Revisit when harvest volume makes a disallowed loss mat
 
 *All three deferrals are in [`V2-BACKLOG.md`](./V2-BACKLOG.md) as V2-9 … V2-12, with enough
 detail to act on without re-deriving the reasoning.*
+
+**D-132 — No liquidity override on the daily buy path.** (Q-207 closed.) The override exists
+because a human weighs the trade-off; the daily run is automated with nobody watching, so there
+is no one to weigh it. Overrides stay limited to **averaging** and **harvest proxy selection**
+(D-113). The volume filter governs universe construction absolutely.
+
+**D-133 — "Profit" and "taxable gain" are reported as two distinct figures.** (Q-215 closed.)
+Profit (D-061) subtracts all charges including STT; taxable gain adds STT back, since STT is not
+deductible from capital gains. Both are labelled, shown side by side, with the difference
+visible. One blended number would be wrong for one purpose or the other.
+
+**D-134 — Proactive tax proposals are deferred to v2.** (Q-219 closed.) v1 stays descriptive
+outside harvesting and the position-specific LTCG warning (D-118). Recorded as V2-13.
+
+---
+
+# 🏁 DESIGN CONVERSATION CLOSED — 2026-09-23
+
+**134 decisions across 18 rounds.** Every question raised has been answered, deferred to v2 with
+its reasoning, or converted into a research task. Two cold-start gaps are raised below; they
+concern onboarding rather than design, and do not reopen anything decided.
+
+## Two onboarding gaps found while closing out
+
+**Q-220 🔴 — What happens to holdings that already exist on day one?**
+D-062 makes the default behaviour *sell anything not explicitly excluded*, using the broker's
+reported average cost for holdings ATOM did not buy (D-059/`EXTERNAL`). Taken literally, the
+**first run would place sell orders across every ETF already in the account**, at the configured
+profit percentage, whether or not the operator intended those positions to be managed.
+
+That is almost certainly not wanted on day one. Options:
+- **(a)** Onboarding presents every existing holding and the operator marks each **ADOPT** or
+  **EXCLUDE** before the first run — nothing is sold until that is done.
+- **(b)** Everything existing is auto-excluded; only positions ATOM buys are ever managed.
+- **(c)** Everything existing is adopted, as the current rules imply.
+
+*Recommendation: **(a)**. It is one screen, it is a decision only the operator can make, and it
+matches the no-defaults principle (D-038). **(b)** is the safe fallback if that screen slips.*
+
+**Q-221 🟠 — Adopted holdings have no buy date, so cost of capital cannot start.**
+D-045 accrues per lot from the **buy date**. A holding adopted at onboarding has a broker-reported
+average cost but often **no acquisition date** — broker holdings APIs commonly omit it. Without a
+date there is no accrual start.
+
+Options: take the date from the broker's **trade book** where history reaches back far enough;
+have the operator **enter** an acquisition date per adopted lot; or **start accrual from the
+onboarding date**, accepting that pre-existing holding period is not charged.
+
+*Recommendation: trade book where available, operator entry where not, onboarding date as the
+last resort — and flag which basis was used, since it changes the cost-of-capital figure.*
+
+| Q-220 | 🔴 Day-one treatment of existing holdings — adopt, exclude, or choose per holding |
+| Q-221 | Acquisition date for adopted holdings, for cost-of-capital accrual |
