@@ -1410,3 +1410,69 @@ Full detail in [`../08-reporting/TAXATION-MODEL.md`](../08-reporting/TAXATION-MO
 | Q-210 | Model surcharge, or slab + cess only? |
 | Q-211 | Track carried-forward losses across FYs? |
 | Q-212 | Is the ₹1.25 lakh equity LTCG exemption applied per investor across accounts? |
+
+---
+
+## Round 17 — 2026-09-23 · Design questions closed
+
+**D-117 — Factor tier-2 drops the cap segment.** (Q-203 closed.) Tier 1 keeps the exact index,
+so cap precision is preserved where a same-index peer exists; tier 2 falls back to the factor
+type alone, so a midcap momentum ETF can proxy a largecap momentum ETF. The 0.85 correlation
+floor guards the swap.
+
+*Effect: orphans across the 311 tradable ETFs fall from **20 to 8**; within FACTOR, from 10
+liquid orphans to **3 in total** (ESG, GROWTH, SHARIAH — each the sole ETF of its kind).*
+
+**D-118 — 12-month boundary: warn, never defer.** (Q-208 closed.) Daily Status flags positions
+approaching LTCG; the engine never suppresses a sell. Noted that long-term holdings are
+expected to be rare — a position either hits its target or is harvested — so this is a
+safety net, not a common path.
+
+**D-119 — Tax rates are declared by the operator, not inferred.** (Q-209, Q-210 closed.)
+The operator declares **income** and **tax slab**; ATOM derives the STCG rate for commodity and
+global from the declared slab, and applies **surcharge only when the declared income crosses
+the threshold** (₹50 lakh). Nothing is guessed from trading data.
+
+**D-120 — Harvesting is ranked by tax saved.** (Confirms §2.2 of the taxation model.) The
+harvest screen sorts opportunities by **estimated tax saved**, not loss size, and shows the
+computation, so it is visible why a smaller commodity loss outranks a larger equity one.
+
+**D-121 — Carry-forward losses are tracked across financial years.** (Q-211 closed.) By type
+(short-term vs long-term) and vintage, for the 8-year carry-forward window.
+
+**D-122 — The LTCG exemption is a config value.** (Q-212 partly closed.) `ltcg_exemption_inr`
+defaults to nothing and is set to ₹1,25,000 today, so a statutory change is a config edit.
+
+> 🔴 **Flagged for correction: the exemption is per PAN, not per account.**
+> The instruction was "per account ₹1.25 lakh should be done". Under the Income-tax Act the
+> ₹1.25 lakh equity LTCG exemption is an **annual allowance of the assessee (the PAN)**, not of
+> a demat or trading account. Since ATOM is mostly one person's accounts across several brokers
+> (D-092), applying it per account would claim the exemption two or three times over and
+> **understate tax by up to ₹15,625 per extra account** (12.5% of ₹1.25 lakh).
+>
+> **Recommendation: apply it once per investor**, across all their trading accounts, and show
+> the consumed/remaining balance at investor level. Per-account reporting can still show each
+> account's contribution. See Q-213.
+
+**D-123 — Broker tax data includes non-ATOM trades, and must.** (Operator-raised.) When the tax
+report is pulled from a broker it may contain gains from trades ATOM never made. Those gains
+**consume the same annual exemption and the same set-off pools**, so the tax position is only
+correct if they are included. ATOM therefore ingests the broker's full capital-gains statement
+and **tags each trade as ATOM or EXTERNAL** (consistent with the provenance flags in D-062),
+reporting both separately and combined.
+
+*This also means ATOM's tax view is only as complete as the accounts connected to it — a gain
+in an account ATOM does not see cannot be counted. The tax screen should state that limit
+rather than imply completeness.*
+
+**D-124 — Taxonomy confirmed.** (Q-196 closed.) Three buckets, 9 index groups, ~18 sector
+groups, 11 factor types, GLOBAL split US/HK.
+
+**D-125 — The operator creates new sector groups.** (Q-199 closed.) When NSE lists a new theme,
+the operator defines the group; the classifier does not invent one.
+
+**D-126 — Unassigned ETFs are shown greyed on Daily Status.** (Q-205 closed.) Visible but
+inert, so nothing is silently forgotten.
+
+| Q-213 | 🔴 Confirm the LTCG exemption is applied per investor (per PAN), not per trading account |
+| Q-204 | Block a classifier run while a previous change set has undecided items? — explanation requested |

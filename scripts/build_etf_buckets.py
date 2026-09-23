@@ -164,8 +164,11 @@ def classify(category, sub, symbol=''):
 
     for name, keys in FACTOR_TYPES:
         if _match(low, keys):
-            cap = next((c for c, ck in CAP_SEGMENTS if _match(low, ck)), 'UNSPECIFIED')
-            return 'FACTOR', f'{name}_{cap}', 'factor split by cap segment (Q-202)'
+            # D-117 (Q-203): tier 2 is the factor type WITHOUT the cap segment, so a
+            # midcap momentum ETF can still proxy a largecap momentum ETF when no
+            # same-index peer exists. Cap precision is preserved at tier 1, which is
+            # the exact index, and the 0.85 correlation floor guards the tier-2 swap.
+            return 'FACTOR', name, 'tier2 ignores cap segment; tier1 keeps exact index'
 
     for name, keys in INDEX_SEGMENTS:
         if _match(low, keys):
