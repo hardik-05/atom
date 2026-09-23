@@ -1641,9 +1641,13 @@ process-wide `HTTPS_PROXY` environment variable — which by definition cannot d
 **Raw HTTP is not a preference; for three of the five it is the only option that works.**
 
 **D-137 — At onboarding, every pre-existing holding is auto-excluded.** (Q-220 closed, option b.)
-ATOM manages **only what ATOM bought**. On connecting an account, everything already held is
-written to the exclusion list in one pass, so the first run cannot place a sell order across
-positions the operator never intended to hand over.
+ATOM manages **only what ATOM bought**. On connecting an account, everything already held **at
+that moment** is written to the exclusion list in one pass, so the first run cannot place a sell
+order across positions the operator never intended to hand over.
+
+> **Clarified by the operator:** anything ATOM subsequently **buys is sold by ATOM** — ATOM-bought
+> positions are never excluded, and there is nothing to exclude on that side. The exclusion list
+> holds only what pre-dated the connection (plus anything the operator adds by hand later).
 
 > ⚠️ **Boundary with D-086, which must not be blurred.** D-086 says ATOM *never* auto-creates
 > exclusions — unidentified quantity is reported and the operator decides. That still holds for
@@ -1660,3 +1664,28 @@ made to reconstruct historical acquisition dates for pre-existing holdings. The 
 reasoning: the accounts this runs on are expected to start empty, so there is no history worth
 digging for. Combined with D-137 — pre-existing holdings are excluded and are not ATOM capital
 anyway — nothing is left to accrue on.
+
+**D-140 — Broker onboarding plan.** Eight verifiable stages per broker — commercials/T&C,
+developer app, IP whitelisting, auth, read-only surface, order surface, GTT surface, money
+surface — sequenced **Upstox → Dhan → Zerodha → Groww → Shoonya**.
+
+Upstox is first because its read-only stage alone unblocks the universe job, ranking engine, NAV
+gate and the whole paper-trading path — **before any other broker exists, before the static IPs
+are registered and before any money is at risk**. Zerodha is third specifically because its
+account has no data subscription, making it the first real exercise of the D-017 decoupling
+(data from one broker, orders to another). Shoonya is last: REST-only GTT, unusable SDK,
+thinnest documentation.
+
+Architecture is **one `HttpCore` plus five thin adapters** — proxy, retries, rate limiting,
+redaction and logging live in the core, so each adapter is only endpoints, payload mapping and
+an error table, and broker #6 touches no application code.
+
+*Commercial finding: a broker may be free for orders but charged for data. Since ATOM needs data
+from only one broker (D-017), the rest can stay order-only — potentially one subscription
+instead of five. Reported figures disagree across sources and must be confirmed per broker
+(Q-224).*
+
+Full plan in [`../03-brokers/BROKER-ONBOARDING-PLAN.md`](../03-brokers/BROKER-ONBOARDING-PLAN.md).
+
+| Q-224 | Confirm API subscription cost per broker |
+| Q-225 | Ship read-only stage for all five early as data fallback, or Upstox only? |
