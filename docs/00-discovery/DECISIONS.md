@@ -1476,3 +1476,41 @@ inert, so nothing is silently forgotten.
 
 | Q-213 | 🔴 Confirm the LTCG exemption is applied per investor (per PAN), not per trading account |
 | Q-204 | Block a classifier run while a previous change set has undecided items? — explanation requested |
+
+**D-127 — The tax engine computes FIFO per demat account, but everything else per PAN.**
+(Q-213 closed, Q-204 closed — a classifier run is **blocked** while a previous change set has
+undecided items.)
+
+CBDT Circular 768 (1998) applies FIFO **vis-à-vis each demat account** — stock in another
+account cannot be treated as sold. But the assessee is the **person**, so gain pooling,
+loss set-off, the ₹1.25 lakh exemption, surcharge, cess and the final liability are all
+computed **once per PAN**. One investor with three broker accounts has **one** liability, and
+it cannot be obtained by summing three independently-computed numbers.
+
+Nuances captured, several of which change the arithmetic:
+- **The 15% surcharge cap does not apply to commodity and global STCG.** It covers gains under
+  s.111A/112A/112; slab-rate STCG falls outside, so at high income it attracts the full 25–37%
+  surcharge on top of a 30% slab — the most expensive combination in the system.
+- **STT is not deductible** from capital gains, though brokerage, exchange fees, stamp duty, DP
+  charges and GST all are. So "profit" (D-061) and "taxable gain" are deliberately different
+  numbers and must not be conflated.
+- **Set-off has a legal order**: current-year before brought-forward, oldest vintage first;
+  short-term losses offset either kind of gain, long-term losses only long-term.
+- **Advance tax** instalments (15/45/75/100% by 15 Jun/Sep/Dec/Mar) with s.234B/234C interest —
+  an active short-term strategy accrues liability all year.
+- **s.94(7) dividend stripping** can disallow a harvested loss outright if the sale lands within
+  three months of a distribution record date — silently defeating the harvest.
+- **Dividends remain taxable** at slab even though D-099 excludes them from the trading engine.
+
+Full specification in [`../08-reporting/TAX-ENGINE.md`](../08-reporting/TAX-ENGINE.md).
+
+> ⚠️ **D-075 conflict:** PAN-level aggregation needs a grouping key, but not the PAN digits.
+> Recommendation is `investor_id` plus a **masked** PAN for statement verification, never the
+> full number. See Q-214.
+
+| Q-214 | 🔴 Store investor_id + masked PAN only? (conflicts with D-075) |
+| Q-215 | Report "profit" and "taxable gain" as two distinct figures |
+| Q-216 | Show advance-tax instalment dates and estimates? |
+| Q-217 | Check harvest sales against the s.94(7) dividend-stripping window? |
+| Q-218 | Note dividend income as out of scope but taxable? |
+| Q-219 | Should ATOM propose tax actions beyond harvesting, or stay descriptive? |
