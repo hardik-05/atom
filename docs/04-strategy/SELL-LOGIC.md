@@ -52,6 +52,34 @@ run and alerts, rather than continuing and hoping.
 > cancelled** — it is either a manual order to leave alone, or a reconciliation gap worth
 > knowing about. See Q-184.
 
+### 1a. GTT is a per-broker capability, with a DAY-order fallback (D-142)
+
+> "If GTT is not available in Shoonya, let's go ahead with the normal order. Anyway at 4:15 the
+> broker itself will cut down the orders, and next day we can just see if there are any orders —
+> if no orders, then we can start placing."
+
+Each adapter declares `supports_gtt`, and the sell path branches on it:
+
+| | `supports_gtt = True` | `supports_gtt = False` |
+|---|---|---|
+| Order type | GTT / Forever Order | **Plain DAY limit** |
+| Run start | Cancel ATOM's GTTs, verify clean, re-place | **Check the order book; place only what is missing** |
+| End of day | Survives | **Broker cancels at ~16:15** |
+| Protection between runs | ✅ Holds | ❌ **None** |
+
+The run sequence is unchanged in shape — the fallback simply finds an empty book most mornings,
+because the broker cleared it overnight, and places a fresh DAY limit for every sellable holding.
+
+> ⚠️ **The trade-off D-063 was created to avoid returns for these brokers, and only these.**
+> A DAY order dies at 16:15, so on any day the engine is not run, a position at a
+> `supports_gtt = False` broker is **unprotected** — if the target is hit, the sale does not
+> happen. That is acceptable as a broker-specific limitation but it is not a free choice:
+> **those accounts require a daily run**, and the console should say so against them.
+
+*Capability flags, not broker names, drive this. The strategy code never asks "is this
+Shoonya?" — it asks "does this adapter support GTT?" That is what keeps broker #6 a
+configuration change.*
+
 ### Consequences for the broker layer
 
 GTT support is back in scope for all five adapters, and its uneven semantics return with it:

@@ -1732,3 +1732,34 @@ layer** and must be resolved before Phase E (Q-237).
 | Q-234, Q-238 | Do Groww and Shoonya expose any ledger or charges API? |
 | Q-231, Q-232 | Zerodha per-key rate limits across accounts; order-only tier? |
 | Q-226, Q-227 | Upstox analytics token for data; `/v2/user/ip` as health check |
+
+**D-142 — GTT is a declared per-broker capability, with a DAY-limit fallback.**
+Each adapter exposes `supports_gtt`. Where true, the cancel-all-then-replace GTT cycle of D-063
+runs. Where false — Shoonya today, possibly Groww — ATOM places **plain DAY limit sells**, which
+the broker cancels around 16:15; the next run finds an empty book and places fresh ones.
+
+> ⚠️ **The non-run-day exposure that D-063 was created to eliminate returns, for these brokers
+> only.** A DAY order dies at 16:15, so a position at a non-GTT broker is unprotected on any day
+> the engine is not run. **Those accounts require a daily run**, and the console must say so
+> against them rather than leaving it implicit.
+
+*The strategy code branches on the capability flag, never on a broker name — which is what keeps
+onboarding broker #6 a configuration change rather than a code change.*
+
+**D-143 — Egress IP verification is an internal script, not a broker dependency.**
+`scripts/verify_egress_ip.py` calls an independent IP-echo service **through each account's
+proxy** and asserts the observed address equals that investor's expected Elastic IP.
+
+Chosen over the broker endpoints (Upstox `/v2/user/ip`, Dhan `/ip/getIP`) because those cover
+only two of five brokers and would tie the check to broker availability and a valid token. The
+internal script needs neither and covers every account identically.
+
+It also catches a failure the per-account assertion alone would miss: **if two accounts report
+the same address, egress isolation is not working**, even when each address matches what was
+configured. The script flags shared addresses explicitly.
+
+Runs at engine startup before any order is placed, after any change to proxies, ENIs or Elastic
+IPs, and in CI against staging. **Fails closed** — a non-zero exit means no trading.
+
+*The two broker endpoints remain useful as a secondary confirmation, since they prove the path
+end to end as the broker sees it. Belt and braces, not a substitute.*
