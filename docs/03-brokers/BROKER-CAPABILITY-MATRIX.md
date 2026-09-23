@@ -145,3 +145,38 @@ For each broker, fetch and snapshot into `docs/99-vendor-docs/<broker>/` (dated)
 - [Shoonya — API documentation](https://shoonya.com/api-documentation)
 - [Shoonya — GTT via API FAQ](https://faq.shoonya.com/api/can-i-place-a-gtt-good-till-trigger-order-through-apis/)
 - [Shoonya — Python SDK](https://github.com/Shoonya-Dev/ShoonyaApi-py)
+
+---
+
+## 7. Consolidated matrix — verified from SDK source, 2026-09-23
+
+Per-broker detail in [`UPSTOX.md`](./UPSTOX.md) · [`DHAN.md`](./DHAN.md) ·
+[`ZERODHA.md`](./ZERODHA.md) · [`GROWW.md`](./GROWW.md) · [`SHOONYA.md`](./SHOONYA.md).
+
+| | **Upstox** | **Dhan** | **Zerodha** | **Groww** | **Shoonya** |
+|---|---|---|---|---|---|
+| **Auth** | OAuth redirect | Token from account | `request_token`→`access_token` | Paste-in from app | Noren login |
+| **Token life** | Daily (+ long-lived analytics token) | **24 h** | Daily | Daily | ❓ |
+| **GTT in SDK** | ✅ v3 API | ✅ Forever Order | ✅ `/gtt/triggers` | ⚠️ constants only, **no methods** | ❌ **absent** |
+| **GTT in REST** | ✅ | ✅ | ✅ | ✅ (docs) | ✅ (FAQ) |
+| **Ledger API** | ⚠️ P&L charges | ✅ `/ledger` dated | ⚠️ via charges | ❌ none found | ❌ none found |
+| **Charges API** | ✅ `/v2/charges/brokerage`, `/trade/profit-loss/charges` | ❌ | ✅ **`/charges/orders`** | ❌ | ❌ |
+| **Egress IP self-check** | ✅ **`/v2/user/ip`** | ✅ **`/ip/getIP`** | ❌ | ❓ | ❓ |
+| **IP whitelist API** | ❌ | ✅ **`/ip/setIP`** | ❌ | ❓ | ❓ |
+| **Rate limits** | ❓ | ✅ orders 10/s · **quote 1/s** | ✅ 10/s per key · 5,000/day | ❓ | ❓ |
+| **Per-instance proxy** | ✅ | ⚠️ auth leaks | ✅ cleanest | ❌ impossible | ❌ impossible |
+| **Instrument master** | CDN `.json.gz` | CDN `.csv` | `/instruments` | CDN `.csv` | `searchscrip` |
+| **Adapter risk** | Low | Low–medium | Medium | Medium | **High** |
+
+### What the matrix shows
+
+1. **Charge visibility is uneven and decides the reporting design.** Upstox and Zerodha expose
+   charges directly; Dhan exposes a dated ledger; **Groww and Shoonya appear to expose neither.**
+   The computed-vs-reported contrast (D-024) will therefore be genuinely two-sided for three
+   brokers and computed-only for two — with manual statement upload the fallback (Q-234, Q-238).
+2. **Two brokers can verify their own egress IP.** `/v2/user/ip` and `/ip/getIP` turn the hardest
+   infrastructure assumption (D-005) into a startup assertion. Build that health check first.
+3. **Dhan can set the whitelist by API** — useful for *reading* it as a check; writing it should
+   stay manual (Q-229).
+4. **GTT exists everywhere in REST but only partially in SDKs** — which is the whole basis of
+   D-135.

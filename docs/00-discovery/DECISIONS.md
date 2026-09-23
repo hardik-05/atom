@@ -1689,3 +1689,46 @@ Full plan in [`../03-brokers/BROKER-ONBOARDING-PLAN.md`](../03-brokers/BROKER-ON
 
 | Q-224 | Confirm API subscription cost per broker |
 | Q-225 | Ship read-only stage for all five early as data fallback, or Upstox only? |
+
+---
+
+## Round 20 — 2026-09-23 · All five broker specifications written
+
+**D-141 — Per-broker adapter specifications complete**, with endpoints extracted from SDK source
+rather than inferred from prose, since the broker sites are egress-blocked. Documents:
+[`UPSTOX.md`](../03-brokers/UPSTOX.md) · [`DHAN.md`](../03-brokers/DHAN.md) ·
+[`ZERODHA.md`](../03-brokers/ZERODHA.md) · [`GROWW.md`](../03-brokers/GROWW.md) ·
+[`SHOONYA.md`](../03-brokers/SHOONYA.md), consolidated in the capability matrix.
+
+### Findings that change the build
+
+**Two brokers can verify their own egress IP.** Upstox `/v2/user/ip` and Dhan `/ip/getIP` return
+the address a request arrived from. This converts the hardest infrastructure assumption (D-005,
+per-investor static IP) from something we hope works into a **startup health check and a test**.
+Build it with the first adapter.
+
+**Dhan exposes IP whitelisting as an API** — `/ip/getIP`, `/ip/setIP`, `/ip/modifyIP`. D-007
+assumed manual registration everywhere. Recommendation stands that **writing** stays manual and
+operator-initiated; reading is a health check.
+
+**Charge visibility is uneven, and it shapes reporting.** Upstox (`/v2/charges/brokerage`,
+`/trade/profit-loss/charges`) and Zerodha (`/charges/orders`) expose charges directly; Dhan
+exposes a dated `/ledger`; **Groww and Shoonya appear to expose neither.** So D-024's
+computed-vs-reported contrast is genuinely two-sided for three brokers and **computed-only for
+two**, with manual statement upload as the fallback.
+
+**Dhan's quote API at 1 request/second** is the sharpest limit across all five — a 60-ETF
+universe would take a minute per account. Dhan must never be the data source, reinforcing D-017
+and D-058i.
+
+**Groww's GTT exists as SDK constants with no methods; Shoonya's is absent entirely.** Both have
+it in REST. Since ATOM is raw-HTTP this is not blocking, but Shoonya's exact GTT endpoint,
+payload and alert-type enum (`LTP_A_O` style) is now **the largest single unknown in the broker
+layer** and must be resolved before Phase E (Q-237).
+
+| Q-229 | Dhan `/ip/getIP` as health check, `setIP` manual? |
+| Q-233 | 🔴 Groww GTT endpoint and payload from REST docs |
+| Q-237 | 🔴 Shoonya GTT endpoint, payload and alert-type enum |
+| Q-234, Q-238 | Do Groww and Shoonya expose any ledger or charges API? |
+| Q-231, Q-232 | Zerodha per-key rate limits across accounts; order-only tier? |
+| Q-226, Q-227 | Upstox analytics token for data; `/v2/user/ip` as health check |
