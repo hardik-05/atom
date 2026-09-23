@@ -1594,3 +1594,33 @@ last resort — and flag which basis was used, since it changes the cost-of-capi
 
 | Q-220 | 🔴 Day-one treatment of existing holdings — adopt, exclude, or choose per holding |
 | Q-221 | Acquisition date for adopted holdings, for cost-of-capital accrual |
+
+---
+
+## Round 19 — 2026-09-23 · Broker research begins
+
+**D-135 — D-056b (raw HTTP, not vendor SDKs) is confirmed on evidence.** The SDKs were
+downloaded from PyPI and read directly:
+
+| Broker | Per-instance proxy | Finding |
+|---|---|---|
+| **Upstox** | ✅ | `configuration.proxy` → `urllib3.ProxyManager`; two Configurations coexist cleanly |
+| **Dhan** | ⚠️ | Trading calls use a per-instance `requests.Session` (proxy settable post-construction), but **six calls in `auth.py` and `_security.py` use module-level `requests` and bypass it entirely** |
+| **Shoonya** | ❌ | GTT absent from the SDK, present in REST — cannot express ATOM's sell logic |
+
+> 🔴 The Dhan gap is the failure mode the design exists to prevent: **orders would egress from
+> the correct whitelisted IP while the authentication flow left from the instance's default
+> route**, silently. Nothing would look broken. Fixing it requires patching `requests`
+> process-globally — reintroducing the very problem — or forking the SDK.
+
+**D-136 — A proxy is a mandatory constructor argument on every broker adapter**, and a missing
+proxy **raises** rather than falling back to the default route. A test must prove no code path
+can reach a broker without one. Full analysis in
+[`../03-brokers/SDK-EVALUATION.md`](../03-brokers/SDK-EVALUATION.md).
+
+*The SDKs remain valuable as the most accurate available specification of each broker's API —
+endpoint paths, payload shapes, enums and error formats read from working code rather than
+prose. PyPI is also reachable from restricted environments where broker sites are not.*
+
+| Q-222 | Confirm a missing proxy raises rather than defaulting to the instance IP |
+| Q-223 | Verify Zerodha `kiteconnect` and Groww `growwapi` for the same proxy behaviour |
