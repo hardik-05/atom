@@ -94,22 +94,59 @@ therefore reintroduces exactly the problem we are avoiding — or forking the SD
 
 ---
 
-## 4. Shoonya — ❌ cannot place the order the strategy needs
+## 4. Zerodha — ✅ the cleanest implementation of the five
 
-Established in the capability matrix: **Shoonya's GTT is available over REST but absent from its
-Python SDK**. ATOM's sell logic is GTT-based (D-063), so the SDK cannot express the core
-operation regardless of proxy behaviour.
+`kiteconnect` 5.2.2 takes `proxies` as a constructor argument and passes it explicitly on
+**every** request:
+
+```python
+self.proxies = proxies if proxies else {}
+self.reqsession = requests.Session()
+...
+r = self.reqsession.request(method, url, ..., proxies=self.proxies)
+```
+
+Nothing bypasses it. If any SDK were to be used, this is the one that could be.
 
 ---
 
-## 5. Conclusion — D-056b stands, now on evidence
+## 5. Groww — ❌ per-instance proxy is impossible
 
-| Broker | Per-instance proxy | Verdict |
-|---|---|---|
-| **Upstox** | ✅ `configuration.proxy` → `urllib3.ProxyManager` | SDK would work |
-| **Dhan** | ⚠️ session yes, **auth calls no** | SDK leaks silently |
-| **Shoonya** | — | SDK cannot place GTT at all |
-| Zerodha, Groww | ❓ to verify | — |
+`growwapi` 1.5.0 uses **no session at all**. Every HTTP call is module-level `requests`:
+
+```
+growwapi/groww/client.py:179    requests.get(self.INSTRUMENT_CSV_URL)
+growwapi/groww/client.py:1405   requests.get(...)
+growwapi/groww/client.py:1440   requests.post(...)
+growwapi/groww/client.py:1560   requests.post(url, headers=headers, json=data, timeout=15)
+```
+
+`grep -c 'requests.Session' → 0`. There is no per-instance object to attach a proxy to. The only
+lever is the process-wide `HTTPS_PROXY` environment variable, which cannot differ per account —
+exactly what the design rules out.
+
+---
+
+## 6. Shoonya — ❌ impossible, twice over
+
+`NorenRestApiPy` 0.0.22:
+
+- **26 bare `requests.post` calls. Zero sessions.** Same impossibility as Groww, at greater scale.
+- **No GTT or alert methods exist in the SDK** (`grep 'def .*gtt\|def .*alert' → nothing`),
+  confirming the capability-matrix finding: Shoonya's GTT is REST-only. ATOM's sell logic is
+  GTT-based (D-063), so the SDK cannot express the core operation regardless of proxy behaviour.
+
+---
+
+## 7. Conclusion — three of five SDKs cannot meet the requirement
+
+| Broker | Sessions | Bare `requests` calls | Per-instance proxy | Verdict |
+|---|---|---|---|---|
+| **Zerodha** | ✅ 1 | 0 | ✅ `proxies=` on every request | SDK would work |
+| **Upstox** | n/a (urllib3) | 0 | ✅ `configuration.proxy` | SDK would work |
+| **Dhan** | ✅ 1 | **6, all in auth** | ⚠️ trading yes, **auth leaks** | Silent leak |
+| **Groww** | ❌ 0 | **5** | ❌ impossible | Cannot comply |
+| **Shoonya** | ❌ 0 | **26** | ❌ impossible | Cannot comply, **and no GTT** |
 
 **Raw HTTP for all five**, as D-056b decided. Three independent reasons, now demonstrated
 rather than asserted:
@@ -148,4 +185,4 @@ A missing proxy should raise, never fall back to the default route. (Q-222)
 | ID | Item |
 |---|---|
 | Q-222 | Confirm: a missing proxy raises rather than defaulting — no silent fallback to the instance's own IP |
-| Q-223 | Verify Zerodha (`kiteconnect`) and Groww (`growwapi`) SDKs for the same per-instance proxy behaviour |
+| ~~Q-223~~ | ✅ Verified — Zerodha passes, Groww and Shoonya cannot comply at all |

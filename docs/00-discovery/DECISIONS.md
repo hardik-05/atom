@@ -1623,7 +1623,22 @@ endpoint paths, payload shapes, enums and error formats read from working code r
 prose. PyPI is also reachable from restricted environments where broker sites are not.*
 
 | Q-222 | Confirm a missing proxy raises rather than defaulting to the instance IP |
-| Q-223 | Verify Zerodha `kiteconnect` and Groww `growwapi` for the same proxy behaviour |
+| ~~Q-223~~ | ✅ Verified — see D-139 |
+
+**D-139 — All five SDKs inspected. Three of five cannot meet the static-IP requirement at all.**
+(Q-223 closed.)
+
+| Broker | Sessions | Bare `requests` calls | Per-instance proxy |
+|---|---|---|---|
+| **Zerodha** | 1 | 0 | ✅ `proxies=` passed on every request — cleanest of the five |
+| **Upstox** | urllib3 | 0 | ✅ `configuration.proxy` → `ProxyManager` |
+| **Dhan** | 1 | **6, all in `auth.py`/`_security.py`** | ⚠️ trading yes, **authentication leaks** |
+| **Groww** | **0** | **5** | ❌ no session object exists to attach a proxy to |
+| **Shoonya** | **0** | **26** | ❌ same, at greater scale — **and no GTT methods at all** |
+
+Groww and Shoonya offer no per-instance HTTP object whatsoever, so their only lever is the
+process-wide `HTTPS_PROXY` environment variable — which by definition cannot differ per account.
+**Raw HTTP is not a preference; for three of the five it is the only option that works.**
 
 **D-137 — At onboarding, every pre-existing holding is auto-excluded.** (Q-220 closed, option b.)
 ATOM manages **only what ATOM bought**. On connecting an account, everything already held is
