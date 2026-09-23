@@ -1370,3 +1370,43 @@ per ETF. Disagreements are flagged for the operator, never silently resolved.
 
 *Verified end-to-end with a local file in this session: symbol → ISIN → scheme name → derived
 benchmark → NSE cross-check all produced correct output.*
+
+---
+
+## Round 16 — 2026-09-23
+
+**D-115 — GLOBAL splits by tracked index, using scheme-name evidence.** NSE labels all six
+global ETFs `GLOBAL INDICES`, but their scheme names show five different indices across two
+markets: Nasdaq 100, Nasdaq Q50, S&P 500 Top 50 and NYSE FANG+ (US); Hang Seng and Hang Seng
+TECH (Hong Kong). One pool would have permitted harvesting US tech exposure into Hong Kong
+exposure. Tier 2 becomes `US_EQUITY` / `HK_EQUITY`; tier 1 is the exact index.
+
+**D-116 — Taxation is per bucket, and two of the three are not flat rates.** *(Supersedes the
+single 20% STCG in D-070a.)*
+
+| | EQUITY | COMMODITY | GLOBAL |
+|---|---|---|---|
+| STCG ≤12m | **20% flat** | **investor's slab rate** | **investor's slab rate** |
+| LTCG >12m | 12.5% | 12.5% | 12.5% |
+| Annual exemption | **₹1.25 lakh** (LTCG) | none | none |
+| STT | yes | no | no |
+
+Plus 4% cess. Commodity and global STCG follow the **investor's marginal slab** — up to 30%
+before cess — so they cannot be system constants and must be captured per investor.
+
+Three consequences, all new:
+1. **Harvesting must rank by tax saved, not loss size.** A ₹10,000 commodity loss at a 30% slab
+   saves ₹3,120; a ₹12,000 equity loss at 20% saves ₹2,496. Ranking by loss picks the worse one.
+2. **Set-off rules differ:** short-term losses offset STCG *and* LTCG; long-term losses offset
+   LTCG only. Losses carry forward 8 years. Track by type and vintage, not as one pool.
+3. **The 12-month boundary conflicts with the daily sell rule (D-063).** Crossing 12 months
+   drops equity from 20% to 12.5%, and commodity/global from ~30% to 12.5% — worth ₹1,750 on a
+   ₹10,000 commodity gain. ATOM currently sells regardless of holding period. Raised as Q-208.
+
+Full detail in [`../08-reporting/TAXATION-MODEL.md`](../08-reporting/TAXATION-MODEL.md).
+
+| Q-208 | 🔴 12-month boundary — ignore, warn, or defer the sell? *(Rec: warn)* |
+| Q-209 | The investor's marginal slab rate, per investor |
+| Q-210 | Model surcharge, or slab + cess only? |
+| Q-211 | Track carried-forward losses across FYs? |
+| Q-212 | Is the ₹1.25 lakh equity LTCG exemption applied per investor across accounts? |
