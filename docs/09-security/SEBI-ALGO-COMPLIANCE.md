@@ -23,10 +23,9 @@ Any API-based system placing orders in Indian markets operates inside it.
 
 ---
 
-> ⚠️ **Read §7 before relying on §2.** Broker documentation fetched 2026-09-24 shows the five
-> brokers do **not** agree on whether the TOPS threshold is the only trigger for registration.
-> Section 2's conclusion is sound on Upstox's reading and **wrong on Shoonya's**. The section is
-> left standing as written so the change is visible; §7 supersedes it where they conflict.
+> ✅ **Section 2 stands — confirmed by the operator, 2026-09-24 (D-181).** §7 records a
+> contradiction found in Shoonya's documentation and §7.6 records its resolution: no Algo ID is
+> required. The intermediate state is left visible rather than deleted.
 
 ## 2. The good news — ATOM is almost certainly exempt from registration
 
@@ -133,7 +132,7 @@ that a future registered-provider posture is a compliance exercise rather than a
 | C2 | Write to each broker's compliance desk confirming self-use API trading is permitted for the intended accounts. Zerodha directs such queries to `kiteconnect@zerodha.com` | Operator |
 | C3 | Implement the hard TOPS cap (D-088) and log peak observed OPS per run | Build |
 | C4 | Keep an `algo_id` field in the order schema, unused for now — **upgraded by C6** | Build |
-| C6 | 🔴 **Ask each of the five brokers directly whether an empanelled Algo ID is required for API orders at < 10 OPS** (Q-268 / X8). Documentation does not settle it | Operator |
+| ~~C6~~ | ~~Ask each broker whether an empanelled Algo ID is required at < 10 OPS~~ — **withdrawn.** The operator verified directly that no Algo ID is required (D-181) | — |
 | C7 | Complete **EDIS authorization** on each Upstox account before the first live sell (Q-270) | Operator |
 | C8 | Register the static egress IP with each broker, and record the earliest permitted change date (Dhan locks for 7 days) | Operator |
 | C5 | Read each broker's API terms of service for clauses on third-party account access | Research |
@@ -204,7 +203,7 @@ Its applicability table is explicit:
 
 ATOM is precisely row 2.
 
-### 7.3 Where that leaves §2
+### 7.3 Where that left §2 — and where it landed
 
 I wrote in §2 that ATOM is "almost certainly exempt from registration" because it sits four
 orders of magnitude below TOPS. **That reasoning is correct about TOPS and may be beside the
@@ -249,3 +248,36 @@ If an Algo ID is required, ATOM's configurability becomes a compliance surface. 
 operator can change per universe, per broker and per category (D-030) is exactly the kind of
 change a strict reading might treat as a new strategy. This is another reason config versioning
 (D-056) matters: it produces the record of what changed and when. Raised as **Q-277**.
+
+### 7.6 ✅ Resolved — 2026-09-24
+
+The operator settled this directly, and the answer is that **§2 was right**:
+
+- They continued trading through the earlier system after the circular took effect, without an
+  Algo ID and without rejections.
+- ATOM does not fall within the registration regime.
+- ATOM runs at roughly **one order per second**, against a 10 OPS threshold.
+
+**Shoonya's page overstates the requirement.** It is an underwriting on their side that has not
+been found to be enforced. Upstox's reading — registration only above 10 OPS — is the operative
+one.
+
+**Consequently:**
+
+| | |
+|---|---|
+| **Q-268** | Closed, **out of scope** |
+| **X8** (letters to five compliance desks) | **Withdrawn** — no letters, no emails |
+| **C6** | Withdrawn |
+| §7.2–7.5 | Retained as a record of the contradiction and its resolution, not as open items |
+
+**What survives, because it costs nothing:** `order_request.algo_id` stays in the schema
+**unused and reserved** (D-089), and `OrderIntent.algo_id` stays optional and defaults to `None`.
+Neither is populated; neither is sent. If a broker ever does begin demanding one, it becomes a
+config change rather than a migration.
+
+The static-IP and no-market-order findings in §7.1 are **unaffected** — those are enforced today
+and ATOM already complies with both.
+
+**Q-277** (would changing a configurable threshold count as a strategy change needing
+re-registration?) is **moot** and closed with Q-268.

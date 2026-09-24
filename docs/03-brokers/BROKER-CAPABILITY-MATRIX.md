@@ -189,14 +189,39 @@ it after a rejection costs a trading day.
 
 | Item | Broker | Question |
 |---|---|---|
-| Algo ID applicability at 2 OPS | **All five** | **Q-268** 🔴 |
+| ~~Algo ID applicability at 2 OPS~~ | ~~All five~~ | ✅ **Q-268 closed 2026-09-24** — no Algo ID required, verified by the operator (D-181) |
 | Access-token lifetime | Shoonya | **Q-269** |
 | GTT endpoint + alert-type enum | Shoonya | **Q-271** (was Q-237) 🔴 |
-| Per-trade charge breakdown | Zerodha, Groww, Shoonya | Q-273 |
+| Per-trade charge breakdown | ~~Zerodha~~, Groww, Shoonya | Q-273 — **Zerodha resolved:** `POST /charges/orders` (D-186) |
 | Static-IP whitelisting procedure | Zerodha, Groww | Q-274 |
 | Does a GTT survive its holding being sold by other means? | All five | Q-186 (open since round 1) |
 | Data-API / subscription cost | Dhan, Groww | Q-275 |
 
-Nothing in this list blocks writing `BROKER-ADAPTER-CONTRACT.md` or the Upstox and Dhan adapters
-— the two brokers scheduled first (D-140). Q-268 blocks going **live** on any broker; Q-271
-blocks Phase E only.
+Nothing in this list blocks the adapter engine or the per-broker adapter documents. Q-271 blocks
+Phase E only.
+
+### The disagreement, resolved
+
+Q-268 is **closed and out of scope**. The operator verified directly that no Algo ID is required:
+they continued trading through the earlier system after the circular took effect, ATOM does not
+fall within the registration regime, and ~1 order per second is far below the 10 OPS threshold.
+**Shoonya's documentation overstates the requirement.** External blocker X8 is withdrawn and no
+letters go to broker compliance desks on this point (D-181).
+
+---
+
+## 7. Next: the adapter engine
+
+The framework is specified in [`ADAPTER-ENGINE.md`](ADAPTER-ENGINE.md) — two directions, five
+stages each, eight canonical models, one capability profile, one error taxonomy.
+
+Per-broker mappings live in [`adapters/`](adapters/), written one broker at a time after its
+developer documentation has been read end to end:
+
+| # | Broker | Status |
+|---|---|---|
+| 1 | **Zerodha** | ✅ [`adapters/ZERODHA-ADAPTER.md`](adapters/ZERODHA-ADAPTER.md) |
+| 2 | Groww | ⏳ next |
+| 3 | Upstox | ⏳ |
+| 4 | Dhan | ⏳ |
+| 5 | Shoonya | ⏳ last (GTT surface unpublished, Q-271) |

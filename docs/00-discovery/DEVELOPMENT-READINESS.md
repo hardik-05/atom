@@ -205,8 +205,9 @@ report specs) · Security (threat model, secrets) · Ops (runbook, testing strat
 | **X5** | Two Elastic IPv4s, registered per broker | Live trading | Before phase 6 |
 | **X6** | Broker API credentials, five | Adapter testing | Per phase |
 | **X7** | Declared income + slab per investor | Tax engine | Before phase 7 |
-| **X8** | 🔴 **Written answer from each of the five brokers: is an empanelled Algo ID required for API orders at < 10 OPS?** Upstox and Shoonya read the same SEBI circular differently, and Shoonya says non-compliant orders are rejected at the exchange (Q-268) | **Any live order, any broker** | **Start now** — five third parties, same letter as X2 |
+| ~~**X8**~~ | ~~Algo ID confirmation from five brokers~~ — **withdrawn 2026-09-24.** The operator verified directly that no Algo ID is required (D-181) | — | — |
 | **X9** | 🔴 **EDIS authorization on each Upstox account** — one-time, manual, from Upstox Web/iOS/Android. Without it every sell GTT on Upstox fails (Q-270) | Upstox sell side | Before the first live Upstox run |
+| **X10** | 🔴 **Confirm DDPI/PoA status on the Zerodha account** (Q-280). Without it, CDSL holdings authorisation is a **daily** operator step, not one-time | Zerodha sell pass | Before designing the Zerodha sell UI |
 
 **Information still to gather (none blocking phases 0–5)**
 
@@ -240,12 +241,15 @@ brokers, with Shoonya's GTT the sole hole (Q-271), and Shoonya is deliberately l
 
 ### It added two external blockers, both to *going live* rather than to building
 
-- **X8 — the Algo ID question.** Upstox and Shoonya read the same SEBI circular differently.
-  Under Shoonya's reading ATOM cannot place a single order there without an empanelled Algo ID,
-  at any order rate. This blocks **live trading on every broker until answered**, and blocks
-  **nothing in phases 0–5**, because dry-run mode places no orders (D-045).
+- ~~**X8 — the Algo ID question.**~~ **Withdrawn 2026-09-24.** The operator verified directly
+  that no Algo ID is required: they traded through the earlier system after the circular took
+  effect, ATOM is outside the registration regime, and ~1 OPS is far below the 10 OPS threshold.
+  Shoonya's documentation overstates it (D-181).
 - **X9 — EDIS on Upstox.** A one-time manual authorization without which every sell GTT fails.
   Cheap to do, catastrophic to discover on the first live sell.
+- **X10 — DDPI on Zerodha.** Zerodha's equivalent authorisation is **per trading session**, not
+  one-time, unless DDPI/PoA is active. Confirming it is one lookup and could remove a daily
+  operator step entirely (Q-280).
 
 Neither delays a line of code. Both are letters and clicks, and both have long enough lead times
 through third parties that they should start now — which is why they sit alongside X2 rather
@@ -261,7 +265,7 @@ than behind it.
 
 ### Revised verdict
 
-Unchanged in substance. Phases 0–5 need none of X2, X4, X5, X7, **X8 or X9**. The first live
+Unchanged in substance. Phases 0–5 need none of X2, X4, X5, X7, **X9 or X10**. The first live
 order needs all of them. The gap between "the system works end to end in dry run" and "the
 system may place a real order" is now explicitly a **compliance and account-setup gap**, not a
 software one — and it is best worked in parallel with the build rather than discovered at the

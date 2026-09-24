@@ -88,16 +88,25 @@ Sources: [Upstox rate limiting](https://upstox.com/developer/api-documentation/r
 Shoonya's own page hedges on the field name — "confirm the exact field name with your
 onboarding contact, as it is being finalized across the industry".
 
-**This is a live blocker, not a documentation gap.** Under Shoonya's reading, ATOM cannot place
-a single order on Shoonya without an empanelled Algo ID, regardless of its 2 OPS ceiling
-(D-149). Under Upstox's reading, ATOM at 2 OPS needs nothing. Both may be true — brokers may
-be implementing the same circular with different strictness — and it must be settled per broker
-before any live order. It is raised as **Q-268** and added to the external blocker list as
-**X8**.
+> ### ✅ Resolved 2026-09-24 — no Algo ID is required (D-181)
+>
+> The operator settled this directly: they continued trading through the earlier system after the
+> circular took effect, without an Algo ID and without rejections; ATOM does not fall within the
+> registration regime; and ATOM runs at roughly **one order per second** against a 10 OPS
+> threshold.
+>
+> **Shoonya's page overstates the requirement** — an underwriting on their side that has not been
+> found to be enforced. Upstox's reading is the operative one. **Q-268 is closed and out of
+> scope, and external blocker X8 is withdrawn** — no letters go to broker compliance desks on
+> this point.
+>
+> What survives because it costs nothing: `OrderIntent.algo_id` stays optional and defaults to
+> `None`, and `order_request.algo_id` stays in the schema unused and reserved (D-089). Neither is
+> populated; neither is sent.
 
-The adapter contract must therefore carry an **optional per-account `algo_id` / `algo_name`**
-that each adapter maps to its broker's field, defaulting to unset. Building it in now costs
-nothing; retrofitting it after a rejection costs a trading day.
+The disagreement is recorded above rather than deleted, because it is a real divergence between
+two vendors' published readings of the same circular and a future reader deserves to know it
+exists.
 
 ---
 
@@ -558,7 +567,17 @@ rejection ATOM would have to explain after the fact. The sellable figure is
 `demat_free_quantity`, not `quantity` — and the attribution document should say so explicitly
 rather than leave "broker quantity" undefined. Raised as **Q-272**.
 
-### Zerodha — trades
+### Zerodha — trades and charges
+
+**🟢 Correction to this section, 2026-09-24.** Zerodha *does* expose per-order charges, via
+`POST /charges/orders` — the "virtual contract note" — returning brokerage, STT, exchange
+turnover, SEBI turnover, stamp duty and GST split three ways. The same endpoint prices
+**imaginary** orders ("`order_id` can be any random string"), which makes it usable for dry-run
+charge figures and pre-trade estimates as well. `POST /margins/orders` returns the same block
+alongside margin requirements. Detail in
+[`adapters/ZERODHA-ADAPTER.md`](adapters/ZERODHA-ADAPTER.md) §5.5.
+
+#### Trades
 
 `GET /trades` returns `trade_id`, `order_id`, `exchange_order_id`, `average_price`, `quantity`,
 `fill_timestamp` — **per fill**, which is what D-163's per-fill lot creation needs. No charge
@@ -639,10 +658,10 @@ fail if money is not present" is satisfied with a human-readable reason to log.
 
 | Item | Broker | Question |
 |---|---|---|
-| Algo ID applicability at ATOM's volume | All five | **Q-268** |
+| ~~Algo ID applicability at ATOM's volume~~ | ~~All five~~ | ✅ **closed** — not required (D-181) |
 | Token lifetime | Shoonya | **Q-269** |
 | GTT endpoint + alert-type enum | Shoonya | **Q-271** |
-| Per-trade charge breakdown | Zerodha, Groww, Shoonya | Q-273 |
+| Per-trade charge breakdown | ~~Zerodha~~, Groww, Shoonya | Q-273 — **Zerodha resolved:** `POST /charges/orders` (D-186) |
 | IP whitelisting procedure | Zerodha, Groww | Q-274 |
 | Whether a GTT survives its holding being sold by other means | All five | Q-186 (open since round 1) |
 | Data API cost | Dhan (charged), Groww (subscription) | Q-275 |

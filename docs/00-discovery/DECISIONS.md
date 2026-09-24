@@ -2276,3 +2276,176 @@ unchanged: the universe model, the deviation metric, the sell logic, the tax eng
 cost-of-capital model, the database schema and the dry-run seam are all untouched by these
 findings. Round 2 changed the **broker layer and the infrastructure gates around it** — which is
 what it was scoped to do.
+
+---
+
+## Round 28 — 2026-09-24 · Round-2 questions answered; the adapter engine commissioned
+
+**D-181 — No Algo ID is required. Q-268 is closed and out of scope.**
+The operator has verified this directly: they traded through the earlier system after the
+circular came into force, ATOM does not fall within the registration regime, and ATOM's ~1 order
+per second is nowhere near the 10 OPS threshold. **Shoonya's documentation overstates the
+requirement** — it is an underwriting on their side that the operator has not found to be
+enforced anywhere.
+
+Actions removed: the letters to five compliance desks (C6), external blocker **X8**, and the
+"build for the strict reading" posture. `SEBI-ALGO-COMPLIANCE.md` §2 is reinstated as correct;
+§7.2–7.4 are marked resolved rather than open.
+
+What survives, because it costs nothing and is good practice either way: `order_request.algo_id`
+stays in the schema **unused and reserved** (D-089), and the adapter contract keeps an optional
+`algo_id` on `OrderIntent`, defaulting to `None`. Neither is populated and neither is sent.
+If a broker ever does start demanding one, it is a config change, not a migration.
+
+**D-182 — The sell pass caps at free quantity and defers the rest.** (Q-272 resolved.)
+Confirmed by the operator. `broker_quantity` in the attribution identity was ambiguous and is now
+split into two checks with two different jobs:
+
+```
+OWNERSHIP     total_quantity  = Σ open ATOM lots + excluded + unattributed
+SELLABILITY   free_quantity  ≥ quantity ATOM intends to sell this run
+```
+
+The sell pass caps each instrument at `free_quantity`; anything sellable by strategy but not
+deliverable today is **deferred with a logged reason**, never attempted. A rejection ATOM could
+have foreseen is a bug, not an accepted outcome — D-052's "let it fail if the money isn't there"
+is about *funds*, not about selling stock that cannot be delivered.
+
+Where a broker does not publish the breakdown the adapter returns `free_quantity = None`, ATOM
+falls back to the total **and logs that it is doing so** — that is exactly the case where a
+foreseeable rejection becomes possible again.
+
+**D-183 — Upstox uses the authorize-and-paste-code pattern.**
+The operator specified the flow, which is how they ran Upstox authorisation on the earlier
+system:
+
+```
+[Authorize] on the token screen
+   → redirect to Upstox, credentials + 2FA
+   → Upstox shows a code
+   → operator copies it back into the ATOM screen
+   → ATOM POSTs code → access_token
+```
+
+This is Pattern B/C from D-177 collapsed into one screen, and it needs no registered redirect
+handler, no notifier URL and no public callback — which removes the `.php`-blocking and
+end-of-URL redirect pitfalls in Upstox's documentation entirely. It becomes the **primary**
+Upstox path; the semi-automated notifier-URL flow stays documented as a future optimisation.
+
+**D-183a — Sell authorisation is a separate concern from token generation, and its scope differs
+by broker.** Worth stating explicitly because the two are easy to conflate: the code the operator
+pastes is an **OAuth authorization code**, which yields an access token. Upstox's **EDIS** is a
+*depository* authorisation, performed inside Upstox's own Web/iOS/Android app, and there is no
+API and no code to paste. The two are unrelated flows that happen to both start with a login.
+
+Research on Zerodha then showed the scope is not uniform either:
+
+| Broker | Sell authorisation | Scope | API? |
+|---|---|---|---|
+| **Upstox** | EDIS | **One-time** per account | ❌ manual, in Upstox's app |
+| **Zerodha** | CDSL authorisation | 🔴 **Per trading session** (until 5:30 PM) unless DDPI/PoA | ✅ `POST /portfolio/holdings/authorise` |
+| **Dhan** | DDPI | Reported by `givenPowerOfAttorney` | — |
+
+So the console gets an **"Authorise holdings"** action alongside "Generate token", driven by the
+capability profile's `sell_authorisation_scope` — `ONE_TIME` shows it once at onboarding,
+`PER_SESSION` shows it every day. On Zerodha it is a real daily operator step unless DDPI is
+active (Q-280).
+
+**D-184 — The 6 AM token boundary is not a live risk.**
+Zerodha and Groww tokens expire at 06:00. The operator generates tokens after 06:00 and the
+market opens at 09:15, so the boundary is never crossed. Recorded as a **constraint the
+scheduler must respect** — the run window and the token window both sit after 06:00 IST — rather
+than as a hazard needing mitigation.
+
+**D-185 — The adapter engine is a first-class component, specified before any adapter is written.**
+
+> "Brokers' input is an input to the system. On each broker level you are doing computations,
+> adjustments, rewriting, renaming these fields and columns, and finally the adapter gives a
+> unified output which goes into our database system. This system should be two-way."
+
+[`ADAPTER-ENGINE.md`](../03-brokers/ADAPTER-ENGINE.md) specifies it: **two directions, five
+stages each.**
+
+```
+INBOUND   fetch → map → normalise → enrich → persist
+OUTBOUND  resolve → translate → serialise → transmit → record
+```
+
+Stages 1–2 and 4–5 are mechanical and identical across brokers. **Stage 3 (normalise) is where
+the brokers actually differ**, and a per-broker adapter document is largely a specification of
+its stage 3.
+
+Eight canonical models (`Instrument`, `Holding`, `OrderIntent`/`OrderState`, `Fill`, `Gtt`,
+`ChargeSet`, `CashEvent`, `Quote`), one `BrokerCapabilities` profile that turns every research
+finding into a machine-readable fact, one closed error taxonomy, and seventeen required adapter
+methods. Adapters are **pure translators plus an HTTP client** — no strategy logic, no database
+writes — so each is testable against recorded vendor fixtures with neither network nor database.
+
+*The test of the design: adding a sixth broker touches one new directory and one row in
+`atom.broker`. Changing a broker's API touches one adapter. If either stops being true, the
+engine is wrong.*
+
+**Order of work — Zerodha → Groww → Upstox → Dhan → Shoonya.** The two extremes first: Zerodha
+carries **no** GTT identity and needs per-session sell authorisation; Groww has the strongest
+identity and idempotency model of the five. An engine that satisfies both ends will hold the
+middle. Shoonya last, since its GTT surface is still unpublished (Q-271).
+
+**D-186 — Zerodha's charges are available after all, and the same endpoint prices imaginary
+orders.**
+Round 2 listed Zerodha per-trade charges as unverified. Reading `/margins/` found
+**`POST /charges/orders`** — the "virtual contract note" — returning brokerage, STT, exchange
+turnover, SEBI turnover, stamp duty and GST (igst/cgst/sgst) per order.
+
+And Zerodha states the `order_id` "can be any random string to calculate charges for an imaginary
+order." That gives ATOM three things it did not have:
+
+1. **Real charge figures in dry-run**, from the broker's own calculator rather than ATOM's model
+   — which is what D-045's dry-run charge requirement asked for.
+2. **Pre-trade estimates** on the execution list, before the operator releases it.
+3. **A genuine estimated-vs-actual contrast on Zerodha**, not only on Dhan (D-179) — call it
+   before with the intended price and after with the achieved `average_price`; both land in
+   `atom.charge` as `COMPUTED` and `BROKER`.
+
+This partially closes Q-273: Zerodha ✅, Dhan ✅, Groww and Shoonya still unknown.
+
+**D-187 — Zerodha's instrument dump has no ISIN, so resolution is seeded from ATOM's own
+reference data.**
+`GET /instruments` returns twelve CSV columns and **none of them is ISIN** — which directly
+conflicts with the engine's rule *match on ISIN, never on symbol* (`ADAPTER-ENGINE.md` §5). ISIN
+*is* present in `GET /portfolio/holdings`, but only for what the investor already holds, which by
+definition excludes anything ATOM is about to buy for the first time.
+
+Resolution, in order:
+
+1. **Seed from `data/reference/etf-reference-data-*.csv`**, which already resolves 311/311 ETF
+   ISINs. Zerodha rows match on `(tradingsymbol, exchange)` **against that curated set** — a few
+   hundred known ETFs — not against the ~80,000-row full dump.
+2. **Confirm from holdings** whenever the instrument appears there. A mismatch between the seeded
+   ISIN and the holdings ISIN **blocks the account's run**: it means ATOM would trade the wrong
+   security.
+3. **Anything unmatched goes to `REVIEW`.** Never auto-match on symbol alone.
+
+The symbol match is acceptable *only* because it runs against a closed, curated universe ATOM
+already knows the symbols of. That distinction is what keeps the ISIN rule intact rather than
+quietly broken — and it is worth being explicit that this is the one place a Zerodha-specific
+compromise reaches back into the engine's general rule.
+
+---
+
+### Questions closed this round
+
+| ID | Resolution |
+|---|---|
+| **Q-268** | ✅ **Out of scope** — no Algo ID required, verified by the operator (D-181). X8 removed |
+| **Q-270** | ✅ Upstox EDIS is a one-time manual step, distinct from token generation; console exposes it via `sell_authorisation_scope` (D-183a). X9 retained as an onboarding step |
+| **Q-272** | ✅ Sell pass caps at free quantity, defers the rest with a logged reason (D-182) |
+| **Q-273** | 🟡 Partially — Zerodha ✅ (D-186), Dhan ✅, Groww and Shoonya still open |
+
+### Questions raised this round
+
+| ID | Question | Blocks |
+|---|---|---|
+| **Q-280** 🔴 | Is **DDPI/PoA** active on the Zerodha account? If not, CDSL holdings authorisation is a **daily** operator step, not one-time. Cheapest possible simplification of the Zerodha sell path | Zerodha sell pass design |
+| Q-278 | Zerodha `/trades` documents a `filled` attribute but the sample payload shows `quantity` | Fill ingestion |
+| Q-279 | Zerodha has **no ledger endpoint**. How are deposits/withdrawals captured — manual statement upload, or `utilised.payout` deltas? | Cost of capital on Zerodha |
+| Q-281 | Does a Zerodha GTT survive its holding being sold by other means, or is it auto-`disabled`? | GTT hygiene |
