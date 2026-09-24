@@ -193,20 +193,44 @@ CREATE TABLE atom.universe (
     CONSTRAINT universe_source_ck CHECK (source IN ('MANUAL','VOLUME_FILTER','IMPORTED'))
 );
 
+CREATE TABLE atom.universe_category (
+    universe_category_id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    universe_id   bigint NOT NULL REFERENCES atom.universe ON DELETE CASCADE,
+    category_code text NOT NULL,      -- EQUITY|COMMODITY|GLOBAL for the ETF universe;
+                                      -- one row equal to the universe name for a manual one
+    display_order integer NOT NULL,   -- the buy priority ordering (D-042)
+    CONSTRAINT universe_category_uk UNIQUE (universe_id, category_code)
+);
+```
+
+> **D-153 — a universe declares its own categories.** The ETF universe has three
+> (EQUITY, COMMODITY, GLOBAL). A manually created universe has **exactly one — itself**. So
+> "category" stops being a global enum and becomes a property of the universe, which is what
+> lets a Nifty-50-stocks universe exist without inventing a bucket taxonomy for it.
+
+```sql
+-- SCD Type 2 membership: every change is a new row, nothing is updated in place (D-154)
 CREATE TABLE atom.universe_member (
     universe_member_id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     universe_id   bigint NOT NULL REFERENCES atom.universe ON DELETE CASCADE,
     instrument_id bigint NOT NULL REFERENCES atom.instrument,
-    member_status text NOT NULL DEFAULT 'ACTIVE',  -- ACTIVE | FROZEN
-    frozen_at     timestamptz,
-    frozen_reason text,
-    added_by      text NOT NULL,
-    added_at      timestamptz NOT NULL DEFAULT now(),
-    CONSTRAINT universe_member_uk UNIQUE (universe_id, instrument_id),
+    member_status text NOT NULL,                   -- ACTIVE | FROZEN
+    valid_from    timestamptz NOT NULL DEFAULT now(),
+    valid_to      timestamptz NOT NULL DEFAULT '9999-12-31 00:00:00+00',
+    change_reason text,
+    changed_by    text NOT NULL,
+    created_at    timestamptz NOT NULL DEFAULT now(),
     CONSTRAINT universe_member_status_ck CHECK (member_status IN ('ACTIVE','FROZEN')),
-    CONSTRAINT universe_member_frozen_ck
-        CHECK (member_status = 'ACTIVE' OR frozen_at IS NOT NULL)
+    CONSTRAINT universe_member_period_ck  CHECK (valid_to > valid_from)
 );
+
+-- at most one open row per (universe, instrument)
+CREATE UNIQUE INDEX universe_member_current_uk
+    ON atom.universe_member (universe_id, instrument_id)
+    WHERE valid_to = '9999-12-31 00:00:00+00';
+
+CREATE INDEX universe_member_asof_idx
+    ON atom.universe_member (universe_id, valid_from, valid_to);
 ```
 
 **Universe-level freeze is distinct from holdings-level freeze (D-062).**
@@ -218,9 +242,23 @@ CREATE TABLE atom.universe_member (
 | Effect | Excluded from ranking | Reduces sellable quantity |
 | Typical use | Pause a sector for a quarter | Conviction hold |
 
-Both are reversible **only by the operator** (D-084). A frozen member keeps its row, its
-history and its add date, so unfreezing next quarter restores it exactly — which is the point
-the operator made about not deleting and re-adding.
+Both are reversible **only by the operator** (D-084).
+
+**Membership is SCD Type 2 (D-154).** Adding, freezing, unfreezing or removing an instrument
+closes the current row (`valid_to = now()`) and opens a new one. Nothing is updated in place and
+nothing is deleted, so:
+
+```sql
+-- what did this universe look like on 12 March?
+SELECT instrument_id, member_status
+FROM   atom.universe_member
+WHERE  universe_id = :u
+AND    :as_of >= valid_from AND :as_of < valid_to;
+```
+
+The open row carries `valid_to = '9999-12-31'`, so "currently active" is a plain predicate rather
+than a special case. Freezing for a quarter and resuming afterwards leaves a complete, queryable
+trail of exactly when and why.
 
 ### Snapshots — reproducibility
 
@@ -266,15 +304,15 @@ CREATE TABLE atom.account_config (
     account_config_id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     trading_account_id bigint NOT NULL REFERENCES atom.trading_account,
     config_key_id  bigint NOT NULL REFERENCES atom.config_key,
-    category       text,                -- EQUITY | COMMODITY | GLOBAL; NULL for account scope
-    universe_id    bigint REFERENCES atom.universe,   -- NULL = applies to all universes
+    universe_id    bigint NOT NULL REFERENCES atom.universe,   -- D-155: config is per universe
+    category_code  text,                -- a universe_category; NULL for account-level keys
     value_text     text,                -- NULL here means an explicit NULL (D-039)
     is_configured  boolean NOT NULL DEFAULT true,
     version        integer NOT NULL DEFAULT 1,
     updated_by     text NOT NULL,
     updated_at     timestamptz NOT NULL DEFAULT now(),
     CONSTRAINT account_config_uk
-        UNIQUE (trading_account_id, config_key_id, category, universe_id)
+        UNIQUE (trading_account_id, universe_id, config_key_id, category_code)
 );
 
 CREATE TABLE atom.config_history (
@@ -286,6 +324,11 @@ CREATE TABLE atom.config_history (
     changed_at timestamptz NOT NULL DEFAULT now()
 );
 ```
+
+> **D-155 — config is keyed by `(trading_account × universe × category)`.** One broker account
+> can trade several universes, and each needs its own volume threshold, trade amount, profit
+> target, depth and lookback. A ₹10,000 order size in the ETF universe and ₹1,00,000 in another
+> is a normal configuration, not an exception.
 
 > **`is_configured` is how D-039 becomes storable.** A row's *existence* means configured; its
 > `value_text` may legitimately be NULL meaning "do not trade this". A missing row means
@@ -382,6 +425,7 @@ CREATE TABLE atom.order_request (
     order_request_id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     run_id        bigint REFERENCES atom.run,
     trading_account_id bigint NOT NULL REFERENCES atom.trading_account,
+    universe_id   bigint NOT NULL REFERENCES atom.universe,   -- D-156
     instrument_id bigint NOT NULL REFERENCES atom.instrument,
     side          text NOT NULL,        -- BUY | SELL
     order_kind    text NOT NULL,        -- LIMIT | GTT
@@ -409,6 +453,7 @@ CREATE TABLE atom.order_fill (
 CREATE TABLE atom.position_lot (
     lot_id        bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     trading_account_id bigint NOT NULL REFERENCES atom.trading_account,
+    universe_id   bigint NOT NULL REFERENCES atom.universe,   -- D-156: lots belong to a universe
     instrument_id bigint NOT NULL REFERENCES atom.instrument,
     buy_order_request_id bigint REFERENCES atom.order_request,
     quantity      integer NOT NULL CHECK (quantity > 0),
@@ -433,7 +478,30 @@ CREATE TABLE atom.lot_closure (
 );
 ```
 
-> **Lots are the backbone.** Averaging creates a second lot rather than mutating the first
+### D-156 — Lots, and therefore sell orders, belong to a universe
+
+One instrument can sit in several universes at once, and each maintains its **own average buy
+price and its own sell target**:
+
+| Step | Universe 1 | Universe 2 | Sell orders live at the broker |
+|---|---|---|---|
+| U1 buys 10 | 10 @ avg₁ | — | 1 order: 10 @ target(avg₁) |
+| U2 buys 20 | 10 @ avg₁ | 20 @ avg₂ | **2 orders**: 10 @ target(avg₁), 20 @ target(avg₂) |
+| U1 averages +10 | **20 @ avg₁′** | 20 @ avg₂ | 2 orders: **20 @ target(avg₁′)**, 20 @ target(avg₂) |
+
+> ⚠️ **This supersedes D-055 ("one sell order per security").** The rule becomes **one sell order
+> per (account, instrument, universe)**. Two consequences that need checking before build:
+>
+> 1. **Brokers may not permit multiple resting GTTs on the same instrument in one account.**
+>    Unverified for all five. If a broker refuses, that account must either restrict an
+>    instrument to one universe, or place a single blended sell — which would destroy per-universe
+>    P&L attribution. (Q-257)
+> 2. **The broker reports one aggregate holding**, not per-universe quantities. ATOM's universe
+>    attribution is internal, so reconciliation matches the broker's total against the **sum** of
+>    ATOM's lots across universes. A mismatch cannot say which universe is wrong — only that the
+>    total is. (Q-258)
+
+**Lots are the backbone.** Averaging creates a second lot rather than mutating the first
 > (D-045); FIFO closes them in `acquired_on` order **within a trading account** (D-127);
 > cost-of-capital accrues per lot; tax gains classify per closure. Position-level storage cannot
 > express any of that, which is why `position` is a view, not a table (§12).

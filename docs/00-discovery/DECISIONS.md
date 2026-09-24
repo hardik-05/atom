@@ -1920,3 +1920,77 @@ This is a large part of why five adapters stay tractable.
 
 The universe concept raises real design questions that the schema has deliberately left open
 rather than guessing at. Listed in the reply; all need answers before the schema is frozen.
+
+---
+
+## Round 24 — 2026-09-24 · Universe design resolved
+
+**D-153 — A universe declares its own categories.** (Q-248 closed.) The ETF universe has three
+(EQUITY, COMMODITY, GLOBAL); a manually created universe has **exactly one — itself**. Category
+therefore stops being a global enum and becomes a property of the universe, which is what lets a
+Nifty-50-stocks universe exist without inventing a bucket taxonomy for it. New table
+`universe_category`, carrying the buy-priority ordering.
+
+**D-154 — Universe membership is SCD Type 2.** (Q-252 closed.) Add, freeze, unfreeze and remove
+all close the current row and open a new one — nothing updated in place, nothing deleted. Open
+rows carry `valid_to = '9999-12-31'`, so "currently active" is a plain predicate and
+*"what did this universe look like on 12 March?"* is a single `BETWEEN` query. A quarter-long
+freeze leaves a complete trail of when and why.
+
+**D-155 — Config is keyed by `(trading account × universe × category)`.** (Q-247 closed.) One
+broker account can trade several universes, each with its own volume threshold, trade amount,
+profit target, depth and lookback. ₹10,000 orders in the ETF universe and ₹1,00,000 in another,
+or depth 3 here and 8 there, are normal configurations.
+
+**D-156 — 🔴 Lots, and therefore sell orders, belong to a universe.** (Q-250 closed. **Supersedes
+D-055.**) One instrument can sit in several universes, each keeping its **own average buy price
+and its own sell target**:
+
+| Step | U1 | U2 | Resting sell orders |
+|---|---|---|---|
+| U1 buys 10 | 10 @ avg₁ | — | 10 @ target(avg₁) |
+| U2 buys 20 | 10 @ avg₁ | 20 @ avg₂ | **two orders** |
+| U1 averages +10 | **20 @ avg₁′** | 20 @ avg₂ | **20 @ target(avg₁′)**, 20 @ target(avg₂) |
+
+The rule becomes **one sell order per (account, instrument, universe)**. Two consequences that
+need verifying before build — Q-257 and Q-258 below.
+
+**D-157 — Reporting is per universe.** (Q-249 closed.) Separate P&L, separate capital, separate
+performance, so universes can be compared over time under their own configs.
+
+**D-158 — Universes are global definitions; accounts select which to run.** (Q-253 closed.) A
+universe created under one investor is usable by any account. No duplication, no per-investor
+copies.
+
+**D-159 — The NAV gate is skipped where NAV does not exist.** (Q-254 closed.) Stocks have no NAV,
+so the gate passes them unconditionally. Applicability is a property of the instrument, not a
+special case in the buy loop.
+
+**D-160 — The volume filter applies to every universe, at a per-universe threshold.** (Q-255
+closed.) 1 lakh in one universe and 2.5 lakh in another is a normal configuration.
+
+### 🔴 D-161 — Harvest proxy matching is deferred to v2
+
+> "Proxy logic need not be baked in as of version one… the universe will be one bucket and your
+> tax harvesting will apply in that one."
+
+v1 treats **each universe as a single bucket**: realised gains are set off against any
+loss-making position inside the same universe, with **no proxy substitution**.
+
+**This parks the entire correlation apparatus** — the three-tier taxonomy, Pearson-on-log-returns,
+tier-1 exact-index and tier-2 group matching, the 0.85 floor, and the synthetic cost-basis
+carry-over (D-019). All of it is researched, specified and committed; it moves to V2-14 rather
+than being discarded.
+
+> ⚠️ **The trade-off v1 accepts:** without a proxy, a harvest sale **exits the position** instead
+> of rotating into an equivalent. Sector exposure is not preserved — which was the original point
+> of the proxy design. Worth being explicit about, because it changes what harvesting *means*:
+> v1 harvesting is "sell a loser to book the loss", not "rotate a loser while staying invested".
+>
+> **Q-259 — does this apply to the ETF universe too, or only to manual universes?** The ETF
+> taxonomy exists and works; keeping proxies for ETFs while manual universes use
+> whole-universe set-off is entirely possible.
+
+| Q-257 | 🔴 Do brokers permit multiple resting GTTs on the same instrument in one account? |
+| Q-258 | 🔴 Broker reports one aggregate holding — how is a reconciliation mismatch attributed across universes? |
+| Q-259 | 🔴 Does D-161 defer proxies for the ETF universe too, or only manual universes? |
