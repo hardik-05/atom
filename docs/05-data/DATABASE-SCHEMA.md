@@ -369,8 +369,18 @@ constraint.*
 ## 8. Runs and decisions
 
 ```sql
+-- D-172: a batch groups the runs created by one "execute all universes" click.
+-- Selecting a single universe simply creates a batch of one.
+CREATE TABLE atom.run_batch (
+    run_batch_id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    triggered_by text NOT NULL,
+    triggered_at timestamptz NOT NULL DEFAULT now(),
+    trade_date   date NOT NULL
+);
+
 CREATE TABLE atom.run (
     run_id        bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    run_batch_id  bigint REFERENCES atom.run_batch,
     trading_account_id bigint NOT NULL REFERENCES atom.trading_account,
     universe_id   bigint NOT NULL REFERENCES atom.universe,
     snapshot_id   bigint REFERENCES atom.universe_snapshot,
@@ -388,9 +398,16 @@ CREATE UNIQUE INDEX run_one_execute_per_day_uk
     WHERE run_type = 'EXECUTE' AND status <> 'FAILED';
 ```
 
-> The partial unique index enforces **one execute run per account per universe per day**
-> (D-057e). Where the operator enables multiple runs, the index is dropped by migration rather
-> than worked around in code.
+> **D-172 — one run per universe, batched when several are triggered together.** The partial
+> unique index enforces one execute run per **(account, universe, day)**, so a day where only
+> universe 1 runs and a day where universes 1 and 2 both run are both natural.
+>
+> "Execute all universes" creates a **`run_batch`** containing one run per selected universe;
+> selecting a single universe creates a batch of one. Per-universe logs, status and P&L stay
+> separate — the batch only groups them for the console, which shows the four states
+> (QUEUED / EXECUTING / COMPLETED / FAILED, D-057f) **per run**, and rolls them up per batch.
+>
+> Runs within a batch execute **linearly**, not in parallel (D-057f).
 
 ```sql
 CREATE TABLE atom.run_candidate (
@@ -555,10 +572,47 @@ CREATE TABLE atom.capital_accrual_daily (
     CONSTRAINT accrual_buckets_ck
         CHECK (deployed_amount + settlement_amount + idle_amount = principal_outstanding)
 );
+
+-- D-169: deployed and settlement capital ARE attributable to a universe (via the lot).
+-- Idle capital is NOT — it belongs to the account and to no universe.
+CREATE TABLE atom.capital_accrual_universe_daily (
+    trading_account_id bigint NOT NULL REFERENCES atom.trading_account,
+    universe_id  bigint NOT NULL REFERENCES atom.universe,
+    accrual_date date NOT NULL,
+    deployed_amount   numeric(18,4) NOT NULL,
+    settlement_amount numeric(18,4) NOT NULL,
+    interest_amount   numeric(18,4) NOT NULL,
+    PRIMARY KEY (trading_account_id, universe_id, accrual_date)
+);
 ```
 
 > **`accrual_buckets_ck` is D-080's invariant as a constraint.** The three buckets must sum to
 > principal, every day. A bug that loses or duplicates capital between them cannot be written.
+
+### D-169 — Capital is held at account level; reporting is three-tier
+
+> "The capital will be at the account level but all the reporting will be at the universe level…
+> if the amount was ₹60,000 and only ₹50,000 utilised, there is ₹10,000 idle cash. So idle-cash
+> computation only comes at the account level, whereas the universe level should only have the
+> pure profit-and-loss report."
+
+```
+account: ₹60,000 capital
+   ├── universe 1 : ₹20,000 deployed   → P&L reported here
+   ├── universe 2 : ₹30,000 deployed   → P&L reported here
+   └── idle       : ₹10,000            → account level ONLY
+```
+
+| Report level | Contains |
+|---|---|
+| **Universe** | Pure P&L — what was bought, what was sold, when, realised and unrealised gain, charges, and the cost of capital on **its own deployed and settlement capital** |
+| **Account** | All of the above summed, **plus idle-capital drag**, total principal, capital efficiency |
+| **Investor (PAN)** | Tax only — gains pooled, set-off, exemption, liability (D-127) |
+
+**Idle capital is deliberately unattributed.** It belongs to no universe, so charging it to one
+would distort the comparison the universes exist to enable. `cash_ledger` therefore stays keyed
+to the **trading account** with no `universe_id`: there is one real pot of money, and universes
+draw from it.
 
 ```sql
 CREATE TABLE atom.charge (
@@ -575,6 +629,148 @@ CREATE TABLE atom.charge (
 
 *Both sources coexist as separate rows for the same order — that **is** the computed-vs-reported
 contrast (D-024), and it is why `charge` is not unique on `(order, type)`.*
+
+---
+
+## 10a. Broker sessions — daily tokens (D-170)
+
+> "Make a call to fetch the holdings. If the call fails, that is probably an invalid token… once
+> the run is complete you clear up the tokens."
+
+```sql
+CREATE TABLE atom.broker_session (
+    broker_session_id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    trading_account_id bigint NOT NULL REFERENCES atom.trading_account,
+    trade_date   date NOT NULL,
+    status       text NOT NULL,      -- PENDING | VALID | INVALID | CLEARED
+    secret_ref   text,               -- SSM Parameter Store path — NEVER the token itself (D-079)
+    obtained_at  timestamptz,
+    verified_at  timestamptz,        -- last successful holdings probe
+    cleared_at   timestamptz,
+    created_at   timestamptz NOT NULL DEFAULT now(),
+    CONSTRAINT broker_session_uk UNIQUE (trading_account_id, trade_date),
+    CONSTRAINT broker_session_status_ck
+        CHECK (status IN ('PENDING','VALID','INVALID','CLEARED')),
+    CONSTRAINT broker_session_no_secret_ck
+        CHECK (secret_ref IS NULL OR secret_ref NOT LIKE '%Bearer%')
+);
+```
+
+**Validity is tested, not assumed.** There is no expiry arithmetic and no trust in a documented
+token lifetime — ATOM calls **holdings**, and a failure means the token is invalid. That probe is
+cheap, read-only, and it exercises exactly the path a real call will take, including the proxy
+and the whitelisted IP.
+
+**Lifecycle**
+
+```
+morning   operator generates the token per account → status VALID, secret_ref stored in SSM
+during    every call uses it; a failure flips status to INVALID and blocks that account
+run ends  token is destroyed in SSM → status CLEARED
+```
+
+With two investors across three brokers, that is **five accounts, five tokens, cleared daily**.
+Clearing after the run means a stolen database yields nothing: the row holds only a path, and
+the parameter behind it no longer exists.
+
+*`broker_session_no_secret_ck` is a crude belt-and-braces guard — it cannot prove a token was not
+stored, but it makes the most obvious mistake fail loudly.*
+
+---
+
+## 10b. Tax ledger (D-171)
+
+Separate from the universe ledger by design (D-167). This is the **per-demat-account FIFO**
+computation, aggregated to the **PAN** (D-127).
+
+```sql
+-- One row per taxable disposal, matched under TAX FIFO — not universe FIFO
+CREATE TABLE atom.tax_gain (
+    tax_gain_id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    trading_account_id bigint NOT NULL REFERENCES atom.trading_account,
+    investor_id  bigint NOT NULL REFERENCES atom.investor,
+    instrument_id bigint NOT NULL REFERENCES atom.instrument,
+    financial_year text NOT NULL,          -- '2026-27'
+    quantity     integer NOT NULL,
+    acquired_on  date NOT NULL,
+    disposed_on  date NOT NULL,
+    holding_days integer NOT NULL,
+    cost_basis   numeric(18,4) NOT NULL,   -- incl. deductible buy charges
+    proceeds     numeric(18,4) NOT NULL,   -- net of deductible sell charges
+    stt_paid     numeric(18,4) NOT NULL,   -- recorded but NOT deducted (D-127)
+    gain_amount  numeric(18,4) NOT NULL,
+    term         text NOT NULL,            -- SHORT | LONG
+    tax_bucket   text NOT NULL,            -- EQUITY | COMMODITY | GLOBAL
+    provenance   text NOT NULL,            -- ATOM | EXTERNAL   (D-123)
+    computed_at  timestamptz NOT NULL DEFAULT now(),
+    CONSTRAINT tax_gain_term_ck CHECK (term IN ('SHORT','LONG'))
+);
+
+-- Losses available to offset, by type and vintage; 8-year carry-forward window
+CREATE TABLE atom.tax_loss_pool (
+    tax_loss_pool_id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    investor_id  bigint NOT NULL REFERENCES atom.investor,
+    financial_year text NOT NULL,          -- year the loss AROSE
+    term         text NOT NULL,            -- SHORT | LONG
+    amount_original  numeric(18,4) NOT NULL,
+    amount_remaining numeric(18,4) NOT NULL,
+    expires_after_fy text NOT NULL,        -- 8 assessment years
+    CONSTRAINT tax_loss_remaining_ck CHECK (amount_remaining >= 0),
+    CONSTRAINT tax_loss_le_original_ck CHECK (amount_remaining <= amount_original)
+);
+
+-- How each loss was applied; the audit trail of the set-off ordering (D-127)
+CREATE TABLE atom.tax_setoff (
+    tax_setoff_id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    investor_id  bigint NOT NULL REFERENCES atom.investor,
+    financial_year text NOT NULL,          -- year the set-off was APPLIED
+    tax_loss_pool_id bigint REFERENCES atom.tax_loss_pool,
+    tax_gain_id  bigint REFERENCES atom.tax_gain,
+    amount       numeric(18,4) NOT NULL CHECK (amount > 0),
+    sequence_no  integer NOT NULL,         -- current-year first, then oldest vintage
+    applied_at   timestamptz NOT NULL DEFAULT now()
+);
+
+-- ₹1.25 lakh equity LTCG exemption — once per PAN per FY (D-127)
+CREATE TABLE atom.tax_exemption_usage (
+    investor_id  bigint NOT NULL REFERENCES atom.investor,
+    financial_year text NOT NULL,
+    exemption_limit  numeric(18,4) NOT NULL,   -- config-driven (D-122)
+    consumed_amount  numeric(18,4) NOT NULL DEFAULT 0,
+    PRIMARY KEY (investor_id, financial_year),
+    CONSTRAINT exemption_not_exceeded_ck CHECK (consumed_amount <= exemption_limit)
+);
+
+-- The computed liability, per PAN per FY — the output of the whole engine
+CREATE TABLE atom.tax_computation (
+    tax_computation_id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    investor_id  bigint NOT NULL REFERENCES atom.investor,
+    financial_year text NOT NULL,
+    stcg_equity  numeric(18,4) NOT NULL DEFAULT 0,
+    stcg_commodity numeric(18,4) NOT NULL DEFAULT 0,
+    stcg_global  numeric(18,4) NOT NULL DEFAULT 0,
+    ltcg_equity  numeric(18,4) NOT NULL DEFAULT 0,
+    ltcg_commodity numeric(18,4) NOT NULL DEFAULT 0,
+    ltcg_global  numeric(18,4) NOT NULL DEFAULT 0,
+    exemption_applied numeric(18,4) NOT NULL DEFAULT 0,
+    setoff_applied    numeric(18,4) NOT NULL DEFAULT 0,
+    tax_before_surcharge numeric(18,4) NOT NULL,
+    surcharge    numeric(18,4) NOT NULL DEFAULT 0,
+    cess         numeric(18,4) NOT NULL,
+    total_liability numeric(18,4) NOT NULL,
+    computed_at  timestamptz NOT NULL DEFAULT now(),
+    CONSTRAINT tax_computation_uk UNIQUE (investor_id, financial_year, computed_at)
+);
+```
+
+**Why six tables rather than one.** Each answers a different question and they have different
+lifetimes: `tax_gain` is a fact about a disposal; `tax_loss_pool` survives up to eight years;
+`tax_setoff` records *how* a liability was reduced; `tax_exemption_usage` is a per-PAN annual
+allowance; `tax_computation` is a point-in-time result that is recomputed as more trades land.
+Collapsing them would lose the audit trail the engine exists to provide.
+
+Note `tax_gain` carries **no `universe_id`** — deliberately. Tax does not know about universes,
+and matching under tax FIFO may pair a disposal with a lot from a different universe (D-167).
 
 ---
 

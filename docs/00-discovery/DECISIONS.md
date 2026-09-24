@@ -2067,3 +2067,61 @@ blended in a report.
 **D-168 — A positive residual warns; only a negative one blocks.** (Q-263 closed.) Surplus stock
 cannot cause a rejected order, so it is surfaced for classification without halting the run. A
 shortfall still blocks, since ATOM would otherwise sell what it does not hold.
+
+---
+
+## Round 26 — 2026-09-24 · Schema completed
+
+**D-169 — Capital is held at account level; reporting is three-tier.** (Q-264 resolved.)
+There is one real pot of money, so `cash_ledger` stays keyed to the trading account with no
+`universe_id`. But **deployed and settlement capital are attributable to a universe** (through
+the lot), while **idle capital is not** — it belongs to the account and to no universe.
+
+```
+account ₹60,000
+   ├── universe 1 : ₹20,000 deployed  → P&L reported here
+   ├── universe 2 : ₹30,000 deployed  → P&L reported here
+   └── idle       : ₹10,000           → ACCOUNT level only
+```
+
+| Level | Contains |
+|---|---|
+| **Universe** | Pure P&L — bought, sold, when, realised/unrealised, charges, cost of capital on **its own** deployed + settlement |
+| **Account** | The above summed, **plus idle drag**, total principal, capital efficiency |
+| **Investor (PAN)** | Tax only — pooled gains, set-off, exemption, liability |
+
+*Charging idle cash to a universe would distort exactly the comparison universes exist to
+enable.* New table `capital_accrual_universe_daily` holds the attributable portion.
+
+**D-170 — Token validity is tested, not assumed.** (Q-266 resolved.)
+ATOM probes **holdings**; a failure means the token is invalid. No expiry arithmetic, no trust in
+a documented lifetime — and the probe exercises the real path including the proxy and the
+whitelisted IP.
+
+Lifecycle: operator generates a token per account each morning → `VALID`, secret path stored in
+SSM (D-079) → used for the day → **destroyed at end of run** → `CLEARED`. Two investors across
+three brokers means five accounts, five tokens, cleared daily. `broker_session` holds only the
+**SSM path**, never the token, so a stolen database yields nothing once the parameter is gone.
+
+**D-171 — Tax ledger modelled: six tables.** (Q-265 resolved.)
+`tax_gain` (one row per disposal, matched under **tax FIFO**, carrying `provenance` for
+ATOM vs EXTERNAL per D-123) · `tax_loss_pool` (by term and vintage, 8-year window) ·
+`tax_setoff` (how each loss was applied, with the legal ordering as `sequence_no`) ·
+`tax_exemption_usage` (₹1.25 lakh per PAN per FY, with a CHECK that it cannot be exceeded) ·
+`tax_computation` (the computed liability, recomputed as trades land).
+
+`tax_gain` deliberately carries **no `universe_id`** — tax does not know about universes, and
+under tax FIFO a disposal may pair with a lot from a different one (D-167).
+
+**D-172 — One run per universe, batched when triggered together.** (Q-267 resolved.)
+A day may execute universe 1 only, or 1 and 2, or all. "Execute all" creates a `run_batch` of one
+run per selected universe; a single selection is a batch of one. Logs, status and P&L stay
+per-universe; the batch groups them for the console. Runs within a batch execute **linearly**
+(D-057f).
+
+---
+
+# 🏁 SCHEMA COMPLETE — 38 tables
+
+All questions raised by the schema are closed. Remaining work on the data layer is writing the
+migration files, which is mechanical.
