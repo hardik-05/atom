@@ -1,6 +1,6 @@
 # Development Readiness Assessment
 
-**Date:** 2026-09-24
+**Date:** 2026-09-24 · **updated after the prior-art review (round 21–22)**
 **Question:** are we ready to start writing application code?
 **Short answer:** **Partially. Enough to start one specific slice; not enough to start broadly —
 and one document should be written first regardless.**
@@ -160,3 +160,64 @@ Everything else is genuinely parallelisable.
 | **Groww/Shoonya have no charges API** | Reporting degrades to computed-only for two brokers. Known, documented, not blocking |
 | **Config surface is large** | No defaults anywhere (D-038) means onboarding an account is a real data-entry task. The pre-flight check makes it safe, but it will feel heavy the first time |
 | **Design drift during build** | 143 decisions is a lot to hold. The decision log is the guard — every module should cite the D-numbers it implements |
+
+---
+
+## 7. Update — 2026-09-24, after the prior-art review
+
+Four things closed since this assessment was written:
+
+| Was | Now |
+|---|---|
+| **B6** domain switch — build and measure three options | ✅ **Removed.** The Cloudflare Worker pattern answers it (D-055h withdrawn) |
+| Per-account proxy — squid assumed | ✅ Narrowed: **evaluate Nginx first** (D-144), already proven in the archive |
+| NSE downloads blocked by bot detection | ✅ **Solved** — Selenium/Chrome (D-145) |
+| Domain undecided | ✅ **`metaalgocapital.com`** (D-148) |
+| Deviation metric questioned | ✅ **Percentage, confirmed on real data** (D-149) |
+
+One item was **added**: 🔴 **rotate the exposed Upstox credentials** (Q-242).
+
+### The remaining list, precisely
+
+**Blocking — must exist before the first line of application code (2 documents)**
+
+| # | Document | Why blocking |
+|---|---|---|
+| 1 | `05-data/DATABASE-SCHEMA.md` | Everything persists into it. Carries invariants that are cheap now and painful later: lot-level tracking, FIFO-per-account with aggregation-per-PAN, dry-run isolation by `(account, execution_mode)`, typed cash ledger, config versioning |
+| 2 | `03-brokers/BROKER-ADAPTER-CONTRACT.md` | Five adapters get built against it. Written after adapter #1, adapter #1 defines it by accident |
+
+**Parallel — useful, none blocking (≈14 documents)**
+
+Architecture (system overview, run lifecycle, module map) · Infrastructure (AWS topology,
+static-IP design, Lambda/Telegram, deployment) · Strategy consolidation (buy logic, averaging,
+harvesting, order lifecycle, universe construction) · Web (UI architecture, screen specs, design
+system, auth) · Observability (logging spec, archival) · Reporting (charges model, unified P&L,
+report specs) · Security (threat model, secrets) · Ops (runbook, testing strategy) · Diagrams.
+
+**External — needs the operator, with lead times**
+
+| # | Item | Blocks | Urgency |
+|---|---|---|---|
+| **X1** | 🔴 Rotate exposed Upstox key/secret | — | **Today** |
+| **X2** | 🔴 Broker T&C review, all five | Any live trading | **Start now** — five third parties |
+| **X3** | Supabase project (prod + dev) | All persistence | Cheapest unblock, minutes |
+| **X4** | AWS account + billing alert at $15 | Deployment | Before phase 1 |
+| **X5** | Two Elastic IPv4s, registered per broker | Live trading | Before phase 6 |
+| **X6** | Broker API credentials, five | Adapter testing | Per phase |
+| **X7** | Declared income + slab per investor | Tax engine | Before phase 7 |
+
+**Information still to gather (none blocking phases 0–5)**
+
+Rate limits for Upstox, Groww, Shoonya · token lifetimes for Zerodha, Shoonya · IP whitelisting
+procedure per broker · **Shoonya GTT endpoint and alert-type enum** (Q-237, mitigated by the DAY
+fallback D-142) · Groww Smart Order payload (Q-233) · whether Groww and Shoonya expose any
+ledger or charges API (Q-234, Q-238) · API subscription costs (Q-224) · NSE ETF tick size
+(Q-179).
+
+Most require the broker developer portals, which are egress-blocked here — faster for the
+operator to check directly.
+
+### Verdict, unchanged
+
+**Two documents stand between here and writing code.** Everything else proceeds in parallel, and
+phases 0–5 need none of X2, X4, X5 or X7.
