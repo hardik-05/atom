@@ -98,8 +98,23 @@ symbol-based**, which suits ATOM well since the ETF master is ISIN-keyed (D-114)
 ✅ `configuration.proxy` → `urllib3.ProxyManager` per Configuration instance. ATOM uses raw HTTP
 regardless (D-135), but Upstox is one of only two SDKs that could have complied.
 
-## 7. Rate limits
-❓ **UNVERIFIED** — not stated in the SDK. Confirm on the developer site and enter in the
+## 7. Rate limits — ✅ verified 2026-09-24
+
+[Source](https://upstox.com/developer/api-documentation/rate-limiting/) — explicitly aligned to
+NSE circular of 5 May 2025.
+
+| Category | /sec | /min | /30 min |
+|---|---|---|---|
+| Order placement (place, modify, cancel, multi, **GTT**) — regular algos | 10 | 500 | 2,000 |
+| Order placement — **SEBI-registered** algos | 50 | 500 | 2,000 |
+| Standard APIs (holdings, positions, funds, candles) | 50 | 500 | 2,000 |
+| TOTP login | 1 | 10 | 60 |
+
+ATOM's 2 OPS ceiling (D-149) sits an order of magnitude below the unregistered limit, so no
+registration is needed **on Upstox's reading of the rules** — see §8.
+
+### Superseded note
+The previous text here said "❓ UNVERIFIED — confirm on the developer site and enter in the
 capability matrix. ATOM's own cap is 2 OPS (D-088), far below any plausible broker limit.
 
 ## 8. Compliance
@@ -115,3 +130,78 @@ adapter should carry the field unused (D-089).
 | Q-227 | Confirm `/v2/user/ip` returns the egress IP and can be used as the static-IP health check |
 | Q-228 | Rate limits |
 | Q-178a | Do DP charges appear in `/v2/trade/profit-loss/charges`, or only in a ledger? |
+
+---
+
+## 10. Round 2 — verified from vendor documentation (2026-09-24)
+
+Full cross-broker detail in [`API-REFERENCE-VERIFIED.md`](API-REFERENCE-VERIFIED.md).
+
+### 10.1 Three token-generation methods, one of which fits ATOM unusually well
+
+[Source](https://upstox.com/developer/api-documentation/authentication/)
+
+| Method | Shape |
+|---|---|
+| **Authorization code** | `GET /v2/login/authorization/dialog` → single-use `code` at the redirect URI → `POST /v2/login/authorization/token` with `code`, `client_id`, `client_secret`, `redirect_uri`, `grant_type=authorization_code` |
+| **Semi-automated** | The app triggers an auth request at a set time; the operator approves from a **mobile notification** or the developer dashboard; **the token is then delivered to a notifier URL** registered at app creation |
+| **Manual** | Copy from the Upstox Developer Apps dashboard |
+
+The **semi-automated / notifier-URL** method is the closest any of the five brokers comes to the
+"generate token" pattern the brief asked for: the operator taps approve on their phone and the
+token arrives at ATOM without anyone opening a browser. It is the recommended primary path for
+Upstox, with paste-in as the fallback.
+
+Two documented gotchas for the redirect URI: **URLs ending in `.php` may be blocked**, and the
+redirect should not sit at the very end of the URL. TOTP is available for 2FA.
+
+### 10.2 GTT — verified payload
+
+`POST https://api.upstox.com/v3/order/gtt/place`
+
+- `type`: `SINGLE` (exactly one rule) · `MULTIPLE` (**2–3 rules, no duplicate strategies**)
+- `rules[].strategy`: `ENTRY` (mandatory) · `TARGET` · `STOPLOSS`
+- `rules[].trigger_type`: ENTRY may be `ABOVE` / `BELOW` / `IMMEDIATE`; TARGET and STOPLOSS
+  **only** `IMMEDIATE`
+- `product`: `I` · **`D`** (delivery — ATOM's) · `MTF`
+- Returns `data.gtt_order_ids[]` — an **array**, even for a single-leg order
+- **Valid up to one year** from creation
+- **"A GTT order is always placed as a LIMIT order upon execution."**
+
+### 10.3 🔴 EDIS authorization is required for any GTT with a SELL leg
+
+> "To place GTT orders with a SELL leg, **EDIS authorization is required**. You can authorize
+> EDIS from any of our platforms — Web, iOS, or Android — by placing a GTT order. Once
+> authorized on any one platform, it will also be valid for API-based orders. You don't need to
+> complete the order; simply going through the authorization flow is sufficient."
+
+ATOM's entire sell side is GTT sells (D-063). **Without EDIS, every sell GTT on Upstox fails.**
+This is a one-time manual step per account and belongs in the onboarding checklist as a hard
+gate, before the first dry run is promoted to live. Raised as **Q-270**.
+
+### 10.4 Error codes worth mapping explicitly
+
+| Code | Meaning | ATOM handling |
+|---|---|---|
+| `UDAPI1154` | Access blocked due to **static IP restrictions** | Fail the run, alert — this is an infrastructure fault, never retry |
+| `UDAPI1158` | **Market orders are not allowed.** Try placing a limit order | Should be unreachable; ATOM places limits only. If seen, it is a bug |
+| `UDAPI1156` | Invalid Algo name in `X-Algo-Name` | Configuration fault, fail loudly |
+| `UDAPI1176` / `UDAPI1177` | Market protection > 25% / invalid | Configuration fault |
+| `UDAPI1136` / `UDAPI1137` | Rule-count violation for SINGLE / MULTIPLE | Bug in the GTT builder |
+
+### 10.5 Regulatory changes live since 1 April 2026
+
+[Source](https://community.upstox.com/t/important-update-regulatory-changes-for-api-and-algo-trading-are-now-live/14874)
+
+- **Registered static IP is mandatory** — validates D-009…D-011 outright
+- **Market orders no longer permitted**; Market Price Protection on by default
+- **Algo registration required only above 10 OPS** — note this is a *weaker* reading than
+  Shoonya's (see `API-REFERENCE-VERIFIED.md` §0.3 and **Q-268**)
+- **MCX API trading temporarily disabled** — no impact; ATOM's commodity ETFs are NSE CASH
+
+### 10.6 New open items
+
+| ID | Item |
+|---|---|
+| Q-268 | Does ATOM need an empanelled Algo ID at 2 OPS? Upstox says no, Shoonya says yes |
+| Q-270 | 🔴 EDIS authorization per Upstox account — blocking for the sell side |

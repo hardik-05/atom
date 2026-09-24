@@ -45,6 +45,55 @@ Anything else means something happened that ATOM did not do:
 > is no longer there, and the broker would reject them. The morning reconciliation must run
 > **before** the sell pass, and a negative residual blocks that account's run.
 
+### 1a. ⚠️ `broker_quantity` is not one number — added 2026-09-24
+
+The identity above says `broker_quantity` without saying **which** quantity, and broker
+documentation read on 2026-09-24 shows that is an ambiguity ATOM cannot leave open. Groww's
+`GET /v1/holdings/user` returns **ten** quantity fields for a single holding:
+
+| Field | Meaning | Sellable today? |
+|---|---|---|
+| `quantity` | Net holding | — (the total, not a sellable figure) |
+| **`demat_free_quantity`** | **Unencumbered and deliverable** | ✅ **yes** |
+| `t1_quantity` | Bought, not yet settled into demat | ❌ not yet |
+| `pledge_quantity` | Pledged as collateral | ❌ no |
+| `repledge_quantity` | Re-pledged | ❌ no |
+| `demat_locked_quantity` | Locked at the depository | ❌ no |
+| `groww_locked_quantity` | Locked by the broker | ❌ no |
+| `corporate_action_additional_quantity` | From a bonus/split not yet credited | ❌ not yet |
+| `active_demat_transfer_quantity` | Transfer out in flight | ❌ no |
+
+The other brokers expose fewer fields but the same underlying reality: **a quantity can be owned
+and not sellable.**
+
+**This splits the identity into two checks that were previously conflated.**
+
+```
+(1) OWNERSHIP    total_quantity      = Σ open ATOM lots + excluded + unattributed
+(2) SELLABILITY  demat_free_quantity ≥ quantity ATOM intends to sell this run
+```
+
+Check (1) is the reconciliation described above — it answers *do our books agree with the
+broker's*. Check (2) is a **separate pre-sell gate** and answers *can this sell actually
+execute*. Selling against a T1 or pledged quantity produces a broker rejection that ATOM would
+have to explain after the fact rather than prevent — and D-052's "let the order fail if money is
+not present" is about *funds*, not about selling stock that is not deliverable. A rejection ATOM
+could have foreseen is a bug, not an accepted outcome.
+
+**Rules:**
+
+- The residual in (1) is computed against the **total** holding, so a pledge or a T1 balance does
+  not masquerade as a missing-stock alarm. A negative residual must mean stock genuinely left.
+- The sell pass caps each instrument's quantity at **`demat_free_quantity`**, and where a lot is
+  sellable by strategy but not deliverable today it is **deferred with a logged reason**, not
+  silently dropped and not attempted.
+- Where a broker does not publish the breakdown, the adapter returns `demat_free_quantity = None`
+  and ATOM falls back to the total — and **logs that it is doing so**, because that is the case
+  where a foreseeable rejection becomes possible again.
+
+The canonical `Holding` model therefore carries `total_quantity` and `free_quantity` as distinct
+fields, with `free_quantity` nullable. Tracked as **Q-272**.
+
 ---
 
 ## 2. Why attribution is derivable at all

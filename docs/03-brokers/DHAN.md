@@ -88,3 +88,107 @@ assume otherwise.
 | Q-175a | Are `/ledger` entries attributable to a specific trade, or only dated? |
 | Q-178b | Confirm DP charges appear in `/ledger` and their latency |
 | Q-230 | Forever Order semantics: max validity, behaviour when the underlying holding is sold elsewhere, synchronous cancellation (Q-185) |
+
+---
+
+## 8. Round 2 — verified from vendor documentation (2026-09-24)
+
+Full cross-broker detail in [`API-REFERENCE-VERIFIED.md`](API-REFERENCE-VERIFIED.md).
+
+### 8.1 🔴 The static IP, once set, is locked for 7 days
+
+[Source](https://dhanhq.co/docs/v2/authentication/)
+
+`POST /v2/ip/setIP` · `PUT /v2/ip/modifyIP` · `GET /v2/ip/getIP`, with
+`{dhanClientId, ip, ipFlag: PRIMARY|SECONDARY}`. IPv4 and IPv6 both accepted.
+
+Three constraints that change ATOM's infrastructure design rather than merely informing it:
+
+1. **"Once an IP is whitelisted, it cannot be edited for the next 7 days."** `GET /v2/ip/getIP`
+   returns `modifyDatePrimary` / `modifyDateSecondary` — the earliest date each may change. An
+   instance rebuild that picks up a fresh address is therefore **a week-long outage on Dhan**,
+   not a restartable error. The Elastic IP is mandatory, and it must be allocated *before* the
+   address is registered with Dhan.
+2. **"Each individual needs to have a unique static IP."** This is the vendor stating, in its own
+   words, the requirement D-010 derived from first principles: one address per investor, never
+   shared.
+3. **Whitelisting gates writes only.** "Static IP is only required while using Order Placement
+   APIs including Orders, Super Order, Forever Order. While fetching order details or trade
+   details, no such IP whitelisting is required."
+
+Consequence (3) is subtle and matters. The D-170 token probe reads **holdings** — which on Dhan
+works from *any* address. A token can therefore probe green and the first order still fail on
+IP. **The pre-flight must verify egress IP as a separate gate from token validity**, not fold
+one into the other. `verify_egress_ip.py` runs on every run, not only at onboarding.
+
+### 8.2 Auth — TOTP makes this fully headless
+
+`POST https://auth.dhan.co/app/generateAccessToken?dhanClientId=&pin=&totp=` returns
+`accessToken` plus an explicit `expiryTime`, **24-hour validity**, no browser involved. This is
+the best automation story of the five brokers.
+
+`GET /v2/RenewToken` expires the current token and issues a fresh 24-hour one — works only for
+tokens generated from Dhan Web, and only while the current token is still active.
+
+The alternative **API key + secret** path (keys valid **12 months**) is a three-step consent
+flow: `generate-consent` → browser `consentApp-login` (302 with `tokenId`) → `consumeApp-consent`.
+Capped at **25 `consentAppId` per day**, one live token at a time.
+
+Both flows return **`givenPowerOfAttorney`** (DDPI status) — capture it at onboarding, since it
+determines whether sells need per-trade authorisation.
+
+### 8.3 `GET /v2/profile` is a better token probe than holdings
+
+Returns `tokenValidity`, `activeSegment`, `ddpi`, `mtf`, `dataPlan`, `dataValidity`.
+
+D-170 specifies probing holdings to test a token. On Dhan, `/v2/profile` is cheaper, is
+explicitly documented as "a great test API", and — unlike a holdings call — tells ATOM **why**
+an account is unusable (DDPI inactive, data plan expired) rather than only that it is. The
+adapter should prefer it, with holdings as the generic fallback for brokers without an
+equivalent.
+
+### 8.4 Forever Order (GTT) — verified payload
+
+`POST /v2/forever/orders` · `PUT /v2/forever/orders/{id}` · `DELETE /v2/forever/orders/{id}` ·
+`GET /v2/forever/orders` (and `/v2/forever/all`).
+
+- `orderFlag`: `SINGLE` or `OCO`
+- `productType` for Forever Orders: **`CNC` or `MTF` only**
+- `orderType`: `LIMIT` or `MARKET`; `validity`: `DAY` or `IOC`
+- OCO second leg: `price1`, `triggerPrice1`, `quantity1`
+- Modify requires `legName`: `TARGET_LEG` (single, or first OCO leg) or `STOP_LOSS_LEG`
+- Status: `TRANSIT` · `PENDING` · `REJECTED` · `CANCELLED` · `TRADED` · `EXPIRED` · `CONFIRM`
+- **Requires the whitelisted static IP**
+
+**`correlationId` — up to 30 characters, user-supplied, "for tracking back".** This is how ATOM
+identifies its own Forever Orders on Dhan and satisfies D-064's "cancel only ATOM's GTTs".
+
+### 8.5 🟢 Per-trade charges are available from the API
+
+[Source](https://dhanhq.co/docs/v2/statements/) — `GET /v2/trades/{from-date}/{to-date}/{page}`
+
+Each trade carries `sebiTax`, `stt`, `brokerageCharges`, `serviceTax`,
+`exchangeTransactionCharges`, `stampDuty` — plus `isin`, `exchangeTradeId`, `exchangeOrderId`.
+
+**This gives the charges-contrast view (D-024, D-105) a ground truth on Dhan rather than a
+model.** Estimated-vs-actual can be shown per fill *and per component*. Where other brokers do
+not expose this, the view degrades to estimate-only, and that degradation must be visible in the
+UI rather than silent.
+
+### 8.6 Ledger
+
+`GET /v2/ledger?from-date=&to-date=` → `narration`, `voucherdate`, `exchange`, `voucherdesc`,
+`vouchernumber`, `debit`, `credit`, **`runbal`**.
+
+`runbal` is the reconciliation anchor for the cost-of-capital model — ATOM's computed
+`principal_outstanding` can be checked against the broker's own running balance, not only
+against its internal ledger. A withdrawal appears as `narration = "FUNDS WITHDRAWAL"` with
+`voucherdesc = "PAYBNK"`, which is what D-078 models as a repayment to the firm. The classifier
+needs a `voucherdesc` → ATOM event mapping table (**Q-276**).
+
+### 8.7 New open items
+
+| ID | Item |
+|---|---|
+| Q-268 | Does ATOM need an empanelled Algo ID at 2 OPS on Dhan? |
+| Q-276 | Build the `voucherdesc` → ATOM cash-event mapping from a real ledger pull |

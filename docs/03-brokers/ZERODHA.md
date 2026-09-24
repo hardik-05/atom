@@ -99,3 +99,106 @@ historical-data add-on — ATOM needs no data from this broker.
 | Q-232 | Is there an order-only subscription tier, without historical data? |
 | Q-178c | Does `/charges/orders` include DP charges, or ledger only? |
 | Q-185a | Is GTT cancellation synchronous, or must `/gtt/triggers` be re-polled? |
+
+---
+
+## 8. Round 2 — verified from vendor documentation (2026-09-24)
+
+Full cross-broker detail in [`API-REFERENCE-VERIFIED.md`](API-REFERENCE-VERIFIED.md).
+
+### 8.1 🔴 Token expires at 6 AM the next day — a hard regulatory boundary
+
+[Source](https://kite.trade/docs/connect/v3/user/)
+
+> "Unless this is invalidated using the API, or invalidated by a master-logout from the Kite Web
+> trading terminal, it'll **expire at 6 AM on the next day (regulatory requirement)**."
+
+This closes the `❓ UNVERIFIED` token-lifetime cell and adds a scheduling constraint ATOM did
+not have: **a Zerodha token generated before 6 AM is dead before the market opens.** The
+token-generation window and the run window must both sit after 6 AM IST.
+
+`refresh_token` is returned in the session payload but is "only available to certain approved
+platforms" — not available to ATOM. There is no refresh path; it is re-login every day.
+
+`DELETE /session/token` explicitly invalidates the session. Zerodha is the **only** broker where
+ATOM can actively destroy the token at end of run rather than merely forgetting it — the D-170
+`CLEARED` step should call it.
+
+### 8.2 Login flow — verified
+
+1. `https://kite.zerodha.com/connect/login?v=3&api_key=xxx`
+2. Redirect carries `request_token` (**lifetime: a few minutes**)
+3. `POST /session/token` with `api_key`, `request_token`, and
+   `checksum = SHA-256(api_key + request_token + api_secret)`
+4. All later calls: `Authorization: token api_key:access_token`
+
+An optional **`redirect_params`** may be appended to the login URL (URL-encoded query string)
+and comes back at the redirect. ATOM should carry `trading_account_id` through it so the console
+knows which account a returning token belongs to without keeping server-side state.
+
+Prerequisite: the Zerodha account must have **2FA TOTP enabled**.
+
+### 8.3 🔴 An active GTT carries no ATOM identifier
+
+[Source](https://kite.trade/docs/connect/v3/gtt/)
+
+An *active* trigger returns `"meta": {}` or `null`. The `app_id` appears only inside
+`orders[].result.meta` **after** the trigger has fired. There is no `tag` field on a GTT at all.
+
+**So on Zerodha, ATOM cannot identify its own GTTs from the broker's data.** The cancel-all-first
+step (D-063) must work entirely from ATOM's own `trigger_id` mapping in the database, and a GTT
+placed by the investor through Kite Web is indistinguishable from ATOM's until it fires.
+
+This makes durable storage of every placed `trigger_id` **load-bearing on Zerodha specifically**:
+if that mapping is lost, ATOM can neither cancel its own GTTs nor safely leave the investor's
+alone. It is the strongest argument in the matrix for persisting broker order IDs before
+returning from `place_gtt`, not after.
+
+### 8.4 GTT — verified payload
+
+`POST /gtt/triggers`
+
+- `type`: `single` · `two-leg` (OCO)
+- `condition`: `{exchange, tradingsymbol, trigger_values[], last_price}` — **`last_price` must
+  be supplied at placement**, so ATOM needs a live quote in hand before placing
+- `orders[]`: array whose **index** determines which order fires for which trigger value
+- `order_type` inside a GTT: **`LIMIT` only**
+- Status: `active` · `triggered` · `disabled` · `expired` · `cancelled` · `rejected` · `deleted`
+- Retrieval returns active GTTs plus **the previous 7 days** of other states
+- Modify is a `PUT`; the docs recommend fetching by ID and modifying the returned object,
+  because a partial PUT will drop fields
+
+### 8.5 Order tagging and status mapping
+
+`tag` — **alphanumeric, max 20 characters** — is returned in the order book as both `tag` and
+`tags[]`. `guid` is documented as a "request id to avoid order duplication". ATOM's `client_ref`
+must be ≤ 20 characters so a single format works across all five brokers.
+
+**Order statuses are not a closed enum.** Beyond `OPEN` / `COMPLETE` / `CANCELLED` / `REJECTED`
+there are transient states — `PUT ORDER REQ RECEIVED`, `VALIDATION PENDING`, `OPEN PENDING`,
+`MODIFY VALIDATION PENDING`, `TRIGGER PENDING`, `CANCEL PENDING`, `AMO REQ RECEIVED` — and the
+docs warn "there may be other values as well".
+
+> **The adapter's status mapping must have a default branch that treats an unknown status as
+> in-flight, never as terminal.** Mapping an unrecognised status to "failed" would make ATOM
+> re-place an order that is about to fill.
+
+Rejections return `status_message` and `status_message_raw`, e.g. *"Insufficient funds. Required
+margin is 95417.84 but available margin is 74251.80."* D-052 ("let the order fail if money is not
+present") is satisfied with a human-readable reason to log.
+
+### 8.6 New parameters since the route table was captured
+
+`market_protection` (custom % up to 100, or `-1` for automatic) and `autoslice` now appear on the
+regular order payload. ATOM uses neither — it places plain limit orders — but the adapter must
+not reject them as unknown if they appear in a response. `autoslice=true` changes the response
+shape to an **array** of per-slice results mixing `order_id` and `error` objects; ATOM never
+sets it, so the adapter may treat an array response as a fault.
+
+### 8.7 New open items
+
+| ID | Item |
+|---|---|
+| Q-268 | Does ATOM need an empanelled Algo ID at 2 OPS on Zerodha? |
+| Q-273 | Does Zerodha expose per-trade charges via API, or console reports only? |
+| Q-274 | Zerodha static-IP whitelisting procedure — not found in the developer docs |

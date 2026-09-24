@@ -1,7 +1,9 @@
 # Broker Capability Matrix
 
-**Status:** 🟡 Research round 1 — verified facts only, gaps explicitly marked
-**Date:** 2026-09-16
+**Status:** 🟢 Round 2 complete — all round-1 `❓ UNVERIFIED` cells now filled from vendor
+documentation, except those listed in §6. Detailed evidence, payloads and sources live in
+[`API-REFERENCE-VERIFIED.md`](API-REFERENCE-VERIFIED.md); this file stays the one-page summary.
+**Date:** 2026-09-16 · **round 2: 2026-09-24**
 **Scope:** All five brokers are confirmed as **fully built and tested in v1** (Q-020).
 
 > **Rule for this document:** every cell is either (a) sourced from vendor documentation with
@@ -59,38 +61,74 @@ to a GTT when the underlying holding is sold by other means. `❓ UNVERIFIED`
 
 ---
 
-## 2. Authentication
+## 2. Authentication — ✅ all five verified (2026-09-24)
 
-| Broker | Token lifetime | Flow | Source |
+| Broker | Token lifetime | Headless path? | Flow |
 |---|---|---|---|
-| **Upstox** | Access token **regenerated daily**; separate long-lived *analytics* token needs no daily re-auth | OAuth → Get Token API | [API overview](https://upstox.com/developer/api-documentation/api-overview/) |
-| **Dhan** | **24 hours**, explicitly aligned to exchange/SEBI guidance on API access management | Token generated from account | [Dhan support](https://dhan.co/support/platforms/dhanhq-api/how-can-i-place-an-order-using-an-api-access-token/) |
-| **Zerodha** | Daily | `request_token` → exchange for `access_token` | ❓ verify in round 2 |
-| **Groww** | **Access token with daily expiry**; generated in Profile → Settings → Trading APIs → Generate API Keys | Bearer token on `POST https://api.groww.in/v1/order/create` | [docs](https://groww.in/trade-api/docs/curl/orders) |
-| **Shoonya** | ❓ UNVERIFIED | NorenApi login | [GitHub SDK](https://github.com/Shoonya-Dev/ShoonyaApi-py) |
+| **Upstox** | Daily | ⚠️ **Semi-automated** — operator approves on mobile, token delivered to a **notifier URL** | OAuth code → `POST /v2/login/authorization/token` |
+| **Dhan** | **24 h**, `expiryTime` returned explicitly | ✅ **Yes** — `POST auth.dhan.co/app/generateAccessToken` with PIN + TOTP | Direct token, or 3-step key+secret consent (keys valid **12 months**) |
+| **Zerodha** | **Expires 6 AM next day** — stated as a regulatory requirement | ❌ No — `refresh_token` exists but is "only available to certain approved platforms" | `request_token` → `checksum = SHA-256(api_key + request_token + api_secret)` → `/session/token` |
+| **Groww** | **Expires daily at 6:00 AM** | ⚠️ Checksum/TOTP call is headless but **still needs a daily approval click** in Groww's console | Token from settings, or `POST /v1/token/api/access` with `key_type` `approval` \| `totp` |
+| **Shoonya** | ❓ (Q-269 — page 403s to automated fetch) | ❓ | **OAuth 2.0** — authorize → code → `SHA-256(client_id + secret + code)` → `gen_access_token`, Bearer header |
 
-**Design consequence for Q-022 (daily token flow).** The five brokers do **not** share one
-flow. Groww issues a token from a settings page (paste-in works); Upstox and Zerodha use an
-OAuth redirect (a hosted redirect URI works better); Dhan is token-from-account. The console
-will need a **per-broker token acquisition strategy**, not one shared screen — this changes
-the Screen 1 design and is worth confirming before I write it.
+Sources: [Upstox](https://upstox.com/developer/api-documentation/authentication/) ·
+[Dhan](https://dhanhq.co/docs/v2/authentication/) ·
+[Zerodha](https://kite.trade/docs/connect/v3/user/) ·
+[Groww](https://groww.in/trade-api/docs/curl) ·
+[Shoonya](https://shoonya.com/api-documentation/api-structure)
+
+**Two findings that change scheduling and one that changes SHOONYA.md.**
+
+- **Zerodha and Groww both expire at 6 AM.** A token generated before 6 AM is dead before the
+  market opens. The token-generation window and the run window must both sit **after 06:00 IST**.
+- **Shoonya has migrated from the legacy Noren `QuickAuth` to OAuth 2.0.** Package name, auth
+  model and token transport all changed. `SHOONYA.md` §0 records the before/after.
+- **Zerodha alone lets ATOM actively destroy the token** (`DELETE /session/token`). D-170's
+  end-of-run `CLEARED` step should call it there, and merely forget the token elsewhere.
+
+**Design consequence for Q-022 — revised.** Round 1 concluded the console needs a per-broker
+screen. It does not: it needs **three patterns**, not five.
+
+| Pattern | Brokers | Operator action each morning |
+|---|---|---|
+| **A — Headless** (TOTP / checksum) | Dhan, Groww¹, Shoonya² | None, or one approval click |
+| **B — Hosted redirect** | Upstox, Zerodha, Dhan (key+secret), Shoonya | Click "Login", authenticate, redirect lands the token |
+| **C — Paste-in** | **All five** | Copy from the broker's site, paste into ATOM |
+
+¹ Groww still requires its daily approval click.  ² Shoonya's code step still appears interactive.
+
+**Pattern C is implemented for all five as the guaranteed fallback** — every broker supports
+copy-paste, and it is the only path a vendor cannot break by changing its redirect handling.
+A and B are optimisations layered on top, added per broker as they are proven.
 
 ---
 
-## 3. Rate limits
+## 3. Rate limits — ✅ all five verified (2026-09-24)
 
-| Broker | Limits | Source |
-|---|---|---|
-| **Dhan** | Non-trading 20/s · **Orders 10/s** · Data 5/s · Quote 1/s. Day cap **5,000 orders**, 25/s, 250/min | [rate limits](https://docs.dhanhq.co/api/v2/guides/rate-limits) |
-| **Zerodha** | **10 req/s per API key** (enforced at key level). Day cap **5,000 orders**, **400/min** | [forum](https://kite.trade/forum/discussion/15398/api-rate-limits), [support](https://support.zerodha.com/category/trading-and-markets/alerts-and-nudges/kite-error-messages/articles/order-rate-limits-on-kite) |
-| **Upstox** | ❓ UNVERIFIED | |
-| **Groww** | ❓ UNVERIFIED | |
-| **Shoonya** | ❓ UNVERIFIED | |
+| Broker | Orders | Data | Other |
+|---|---|---|---|
+| **Upstox** | 10/s · 500/min · 2,000/30 min (unregistered algos; 50/s if SEBI-registered) | Standard APIs 50/s · 500/min | TOTP login 1/s · 10/min · 60/30 min |
+| **Dhan** | 10/s · 250/min · 1,000/hr · **7,000/day**; **max 25 modifications per order** | Data 5/s · 100,000/day · **Quote 1/s** | Non-trading 20/s |
+| **Zerodha** | 10/s per API key · 400/min · 5,000/day | — | — |
+| **Groww** | 10/s · 250/min | Live data 10/s · 300/min | Auth 5/s · 30/min, **150/day** on `/v1/token/api/access`; non-trading 20/s · 500/min. **Limits apply per *type*, not per endpoint** |
+| **Shoonya** | ~10/s, burst-limited | **~1/s per instrument** | 1 WebSocket connection per session; `Rate_Limited` in `emsg`; "ceilings may be tuned without notice" |
 
-ATOM's order volume is tiny (a handful per account per day), so order-rate caps are not a
-constraint. **The real exposure is data**: Dhan's *Quote API at 1 request per second* would
-make quoting a 60-ETF universe take a full minute per account. This is an argument for
-Q-044's single-data-source design — pull market data once from one provider, not per broker.
+Sources: [Upstox](https://upstox.com/developer/api-documentation/rate-limiting/) ·
+[Dhan](https://dhanhq.co/docs/v2/) · [Groww](https://groww.in/trade-api/docs/curl) ·
+[Shoonya](https://shoonya.com/api-documentation/rate-limits)
+
+**D-148 ("rate limits do not affect us") holds for orders and fails for quotes.** ATOM places a
+handful of orders per account per day against ceilings of 7,000–10,000. But **Dhan's 1 quote per
+second** and **Shoonya's 1 per second per instrument** mean pricing a 60-ETF universe from either
+broker takes a full minute per account. Shoonya's own documentation instructs readers to prefer
+WebSocket over polling.
+
+This settles **Q-044 on evidence rather than preference: market data is pulled once, from one
+provider, for all accounts — never per broker.**
+
+Shoonya's "may be tuned without notice" clause means the adapter implements a `Rate_Limited`
+branch with **exponential backoff and jitter** regardless of headroom. Their docs supply the
+pattern; ATOM follows it rather than assuming its low volume is an exemption.
 
 ---
 
@@ -109,74 +147,56 @@ Q-044's single-data-source design — pull market data once from one provider, n
 
 ---
 
-## 5. Round 2 plan
+## 5. Round 2 — done
 
-For each broker, fetch and snapshot into `docs/99-vendor-docs/<broker>/` (dated), then fill:
+All four items on the original plan are complete and written up in
+[`API-REFERENCE-VERIFIED.md`](API-REFERENCE-VERIFIED.md): auth endpoints and lifetimes, order
+payloads and product types, GTT semantics, and portfolio shapes. Vendor pages were read on
+**2026-09-24**; every claim in that document names the page it came from.
 
-1. Auth: exact endpoints, token lifetime, refresh semantics, redirect URI requirements,
-   **static-IP whitelisting procedure** (critical for Q-010/Q-011)
-2. Orders: place/modify/cancel payloads, product types (CNC), validity, tick/price rules
-3. GTT: full semantics, limits, modification rules
-4. Portfolio: holdings vs positions shape, average-cost field, quantity fields
-5. Funds: available-margin field names and their exact meaning
-6. Market data: historical candles, quotes, instrument master
-7. Ledger and charges: what is exposed, in what form, at what latency (feeds Q-100)
-7a. **Funds credit events (D-050):** does the broker expose the actual date funds from a sale
-   land in the account, and is the credit attributable to a specific trade or only to a
-   ledger line? Where it is not attributable, FIFO matching is required. **No adapter may
-   assume T+1** — a Friday sale credits Monday at the earliest, and holidays extend it
-8. Errors: codes, rate-limit responses, retry guidance
+### What round 2 changed, not just confirmed
+
+| Finding | Effect |
+|---|---|
+| **Static IP is now mandatory** (SEBI + NSE/INVG/67858, live since 1 Apr 2026) | Validates D-009…D-011 outright — the design anticipated a rule that is now enforced |
+| **Dhan locks a registered IP for 7 days** | Elastic IP becomes mandatory; an instance rebuild without it is a **week-long outage**, and `verify_egress_ip.py` must gate every run |
+| **Dhan whitelists writes only** | The D-170 holdings probe does **not** exercise the proxy path on Dhan — egress IP must be verified as a **separate** pre-flight gate |
+| **Market orders no longer permitted via API** | ATOM already places limits only; the `MARKET` type should be removed from the live adapter surface entirely |
+| **Upstox needs EDIS for any sell GTT** | A one-time manual step that gates ATOM's **entire sell side** on Upstox (Q-270) |
+| **Zerodha token dies at 6 AM; Groww too** | Token generation and runs must both sit after 06:00 IST |
+| **Zerodha GTTs carry no ATOM identifier until fired** | ATOM's own `trigger_id` mapping is the **only** link to its orders there — it must be persisted before `place_gtt` returns |
+| **Groww's `order_reference_id` is a required idempotency key** | Generalised into a canonical `client_ref` (≤ 20 chars) across all five adapters |
+| **Dhan returns itemised per-trade charges** | The charges-contrast view has a ground truth on Dhan, not a model |
+| **Groww splits `t1_quantity` / `demat_free_quantity`** | "broker quantity" in the attribution identity is ambiguous and must be pinned to the sellable figure (Q-272) |
+
+### The one genuine disagreement
+
+**Upstox** says Algo registration is required only above **10 OPS**. **Shoonya** says SEBI
+circular *SEBI/HO/MIRSD/MIRSD-PoD/P/CIR/2025/0000013* requires a broker-empanelled Algo ID on
+**every** API order, with non-compliant orders "expected to be rejected at the exchange level".
+
+ATOM runs at 2 OPS (D-149), so it is unaffected under Upstox's reading and **blocked under
+Shoonya's**. Documentation cannot settle this — it must be confirmed with each broker before the
+first live order. Tracked as **Q-268** and external blocker **X8**.
+
+The adapter contract carries an **optional per-account `algo_id` / `algo_name`**, defaulting to
+unset, that each adapter maps to its broker's field. Building it now costs nothing; retrofitting
+it after a rejection costs a trading day.
 
 ---
 
-## Sources
+## 6. Still unverified after round 2
 
-- [Upstox — Place GTT Order](https://upstox.com/developer/api-documentation/place-gtt-order/)
-- [Upstox — API Overview](https://upstox.com/developer/api-documentation/api-overview/)
-- [Upstox — Place Order V3](https://upstox.com/developer/api-documentation/v3/place-order/)
-- [DhanHQ v2 — Forever Order](https://dhanhq.co/docs/v2/forever/)
-- [DhanHQ v2 — Orders](https://dhanhq.co/docs/v2/orders/)
-- [DhanHQ — Rate Limits](https://docs.dhanhq.co/api/v2/guides/rate-limits)
-- [Zerodha — Kite Connect](https://zerodha.com/products/api/)
-- [Zerodha — Order rate limits](https://support.zerodha.com/category/trading-and-markets/alerts-and-nudges/kite-error-messages/articles/order-rate-limits-on-kite)
-- [Groww — Trade API](https://groww.in/trade-api)
-- [Groww — Smart Orders (GTT)](https://groww.in/trade-api/docs/python-sdk/smart-orders)
-- [Groww — Orders (cURL)](https://groww.in/trade-api/docs/curl/orders)
-- [Shoonya — API documentation](https://shoonya.com/api-documentation)
-- [Shoonya — GTT via API FAQ](https://faq.shoonya.com/api/can-i-place-a-gtt-good-till-trigger-order-through-apis/)
-- [Shoonya — Python SDK](https://github.com/Shoonya-Dev/ShoonyaApi-py)
+| Item | Broker | Question |
+|---|---|---|
+| Algo ID applicability at 2 OPS | **All five** | **Q-268** 🔴 |
+| Access-token lifetime | Shoonya | **Q-269** |
+| GTT endpoint + alert-type enum | Shoonya | **Q-271** (was Q-237) 🔴 |
+| Per-trade charge breakdown | Zerodha, Groww, Shoonya | Q-273 |
+| Static-IP whitelisting procedure | Zerodha, Groww | Q-274 |
+| Does a GTT survive its holding being sold by other means? | All five | Q-186 (open since round 1) |
+| Data-API / subscription cost | Dhan, Groww | Q-275 |
 
----
-
-## 7. Consolidated matrix — verified from SDK source, 2026-09-23
-
-Per-broker detail in [`UPSTOX.md`](./UPSTOX.md) · [`DHAN.md`](./DHAN.md) ·
-[`ZERODHA.md`](./ZERODHA.md) · [`GROWW.md`](./GROWW.md) · [`SHOONYA.md`](./SHOONYA.md).
-
-| | **Upstox** | **Dhan** | **Zerodha** | **Groww** | **Shoonya** |
-|---|---|---|---|---|---|
-| **Auth** | OAuth redirect | Token from account | `request_token`→`access_token` | Paste-in from app | Noren login |
-| **Token life** | Daily (+ long-lived analytics token) | **24 h** | Daily | Daily | ❓ |
-| **GTT in SDK** | ✅ v3 API | ✅ Forever Order | ✅ `/gtt/triggers` | ⚠️ constants only, **no methods** | ❌ **absent** |
-| **GTT in REST** | ✅ | ✅ | ✅ | ✅ (docs) | ✅ (FAQ) |
-| **Ledger API** | ⚠️ P&L charges | ✅ `/ledger` dated | ⚠️ via charges | ❌ none found | ❌ none found |
-| **Charges API** | ✅ `/v2/charges/brokerage`, `/trade/profit-loss/charges` | ❌ | ✅ **`/charges/orders`** | ❌ | ❌ |
-| **Egress IP self-check** | ✅ **`/v2/user/ip`** | ✅ **`/ip/getIP`** | ❌ | ❓ | ❓ |
-| **IP whitelist API** | ❌ | ✅ **`/ip/setIP`** | ❌ | ❓ | ❓ |
-| **Rate limits** | ❓ | ✅ orders 10/s · **quote 1/s** | ✅ 10/s per key · 5,000/day | ❓ | ❓ |
-| **Per-instance proxy** | ✅ | ⚠️ auth leaks | ✅ cleanest | ❌ impossible | ❌ impossible |
-| **Instrument master** | CDN `.json.gz` | CDN `.csv` | `/instruments` | CDN `.csv` | `searchscrip` |
-| **Adapter risk** | Low | Low–medium | Medium | Medium | **High** |
-
-### What the matrix shows
-
-1. **Charge visibility is uneven and decides the reporting design.** Upstox and Zerodha expose
-   charges directly; Dhan exposes a dated ledger; **Groww and Shoonya appear to expose neither.**
-   The computed-vs-reported contrast (D-024) will therefore be genuinely two-sided for three
-   brokers and computed-only for two — with manual statement upload the fallback (Q-234, Q-238).
-2. **Two brokers can verify their own egress IP.** `/v2/user/ip` and `/ip/getIP` turn the hardest
-   infrastructure assumption (D-005) into a startup assertion. Build that health check first.
-3. **Dhan can set the whitelist by API** — useful for *reading* it as a check; writing it should
-   stay manual (Q-229).
-4. **GTT exists everywhere in REST but only partially in SDKs** — which is the whole basis of
-   D-135.
+Nothing in this list blocks writing `BROKER-ADAPTER-CONTRACT.md` or the Upstox and Dhan adapters
+— the two brokers scheduled first (D-140). Q-268 blocks going **live** on any broker; Q-271
+blocks Phase E only.

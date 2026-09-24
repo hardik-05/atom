@@ -205,6 +205,8 @@ report specs) · Security (threat model, secrets) · Ops (runbook, testing strat
 | **X5** | Two Elastic IPv4s, registered per broker | Live trading | Before phase 6 |
 | **X6** | Broker API credentials, five | Adapter testing | Per phase |
 | **X7** | Declared income + slab per investor | Tax engine | Before phase 7 |
+| **X8** | 🔴 **Written answer from each of the five brokers: is an empanelled Algo ID required for API orders at < 10 OPS?** Upstox and Shoonya read the same SEBI circular differently, and Shoonya says non-compliant orders are rejected at the exchange (Q-268) | **Any live order, any broker** | **Start now** — five third parties, same letter as X2 |
+| **X9** | 🔴 **EDIS authorization on each Upstox account** — one-time, manual, from Upstox Web/iOS/Android. Without it every sell GTT on Upstox fails (Q-270) | Upstox sell side | Before the first live Upstox run |
 
 **Information still to gather (none blocking phases 0–5)**
 
@@ -221,3 +223,46 @@ operator to check directly.
 
 **Two documents stand between here and writing code.** Everything else proceeds in parallel, and
 phases 0–5 need none of X2, X4, X5 or X7.
+
+---
+
+## 8. Update — 2026-09-24, after broker research round 2
+
+The full write-up is [`docs/03-brokers/API-REFERENCE-VERIFIED.md`](../03-brokers/API-REFERENCE-VERIFIED.md);
+the decisions are D-173…D-180. What it means for readiness:
+
+### It did not add a documentation blocker
+
+§4's verdict stands: the database schema was the one genuine blocker and it is written. Round 2
+filled the broker adapter contract's remaining inputs rather than opening new gaps —
+`BROKER-ADAPTER-CONTRACT.md` can now be written against verified payloads for four of five
+brokers, with Shoonya's GTT the sole hole (Q-271), and Shoonya is deliberately last (D-140).
+
+### It added two external blockers, both to *going live* rather than to building
+
+- **X8 — the Algo ID question.** Upstox and Shoonya read the same SEBI circular differently.
+  Under Shoonya's reading ATOM cannot place a single order there without an empanelled Algo ID,
+  at any order rate. This blocks **live trading on every broker until answered**, and blocks
+  **nothing in phases 0–5**, because dry-run mode places no orders (D-045).
+- **X9 — EDIS on Upstox.** A one-time manual authorization without which every sell GTT fails.
+  Cheap to do, catastrophic to discover on the first live sell.
+
+Neither delays a line of code. Both are letters and clicks, and both have long enough lead times
+through third parties that they should start now — which is why they sit alongside X2 rather
+than behind it.
+
+### It hardened three things that were already in the plan
+
+| Was | Now |
+|---|---|
+| Static egress IP — a design choice justified by the brief | **Mandatory by regulation** since 1 Apr 2026, and on Dhan **locked for 7 days once set** — so the Elastic IP (X5) moves from "recommended" to required, and must be allocated *before* registration with any broker |
+| `verify_egress_ip.py` — an onboarding check | **A pre-flight gate on every run**, and **separate from the token probe**, because Dhan whitelists writes only and a token can probe green while orders still fail on IP |
+| Limit orders — a strategy preference | **The only permitted path**; `MARKET` leaves the live adapter surface entirely (D-174) |
+
+### Revised verdict
+
+Unchanged in substance. Phases 0–5 need none of X2, X4, X5, X7, **X8 or X9**. The first live
+order needs all of them. The gap between "the system works end to end in dry run" and "the
+system may place a real order" is now explicitly a **compliance and account-setup gap**, not a
+software one — and it is best worked in parallel with the build rather than discovered at the
+end of it.
