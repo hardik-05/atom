@@ -1994,3 +1994,57 @@ than being discarded.
 | Q-257 | 🔴 Do brokers permit multiple resting GTTs on the same instrument in one account? |
 | Q-258 | 🔴 Broker reports one aggregate holding — how is a reconciliation mismatch attributed across universes? |
 | Q-259 | 🔴 Does D-161 defer proxies for the ETF universe too, or only manual universes? |
+
+---
+
+## Round 25 — 2026-09-24
+
+**D-162 — ATOM's lot ledger is the source of truth for per-universe attribution; the broker's
+holdings call is a reconciliation check on the total only.** (Q-258 resolved.)
+
+The broker reports one quantity per instrument and will never know about universes. Attribution
+is therefore **derived from ATOM's own order and fill history** — every lot carries `universe_id`
+and is created only by a recorded fill, so the chain is closed.
+
+Reconciliation identity, per `(account, instrument)`:
+```
+broker_quantity = Σ open ATOM lots + excluded_quantity + unattributed_quantity
+```
+`unattributed_quantity` is the health signal. **A negative residual blocks the account's run** —
+ATOM would otherwise place sell orders for stock that is no longer there. Residuals are never
+auto-attributed (D-086); the operator resolves them, and the choice is audited.
+
+Full model with worked permutations — buy in two universes, sell from one, average, partial fill,
+manual sell, corporate action — in
+[`../05-data/HOLDINGS-ATTRIBUTION.md`](../05-data/HOLDINGS-ATTRIBUTION.md).
+
+> ⚠️ **Universe FIFO and tax FIFO are different orderings, and both must be computed.** ATOM
+> closes lots FIFO *within a universe* so per-universe P&L means something; the Income-tax Act
+> applies FIFO *per demat account* across everything in it (D-127). Selling U-A's units may, for
+> tax, close U-B's older lot. Both are correct for their own purpose; reports must never blend
+> them.
+
+**D-163 — Harvest proxies are chosen manually by the operator.** (Q-259 resolved.)
+
+> "It's not that there is no proxy. The proxy needs to be filled by the user itself… all the 50
+> holdings can be proxy to the 50 ones."
+
+Any instrument in the universe may serve as the proxy for any other. ATOM presents the
+loss-making positions and the available instruments; the operator picks the pairing. **No
+predefined proxy buckets, no correlation floor, no automatic matching in v1.**
+
+*This preserves the rotation behaviour that mattered — a harvest still sells a loser and buys
+something else, so exposure is not simply exited — while removing the machinery that chose the
+replacement. The synthetic cost-basis carry-over (D-019) still applies to the operator's chosen
+proxy. The correlation apparatus stays parked as V2-14.*
+
+**D-164 — GTT first, simple sell order as fallback.** (Q-257 resolved, confirming D-142.)
+Indian brokers generally permit multiple GTTs on the same instrument, which D-156 requires.
+Where a broker does not, that adapter declares `supports_gtt = false` and ATOM places plain DAY
+limit sells each morning, which the broker cancels in the evening. The capability flag already
+carries this; no separate handling is needed.
+
+| Q-260 | 🔴 Corporate actions change broker quantity but not ATOM's lots — apply the ratio on confirmation? |
+| Q-261 | One lot per fill, or one per order at a weighted average? |
+| Q-262 | Confirm universe FIFO and tax FIFO are maintained separately |
+| Q-263 | Should a positive residual block the run, or only warn? |
