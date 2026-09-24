@@ -1763,3 +1763,65 @@ IPs, and in CI against staging. **Fails closed** — a non-zero exit means no tr
 
 *The two broker endpoints remain useful as a secondary confirmation, since they prove the path
 end to end as the broker sees it. Belt and braces, not a substitute.*
+
+---
+
+## Round 21 — 2026-09-24 · Prior-art review
+
+Four existing MetaAlgo repositories reviewed. **This is a working production system for the same
+strategy**, and it answers open questions, validates decisions, and contradicts one.
+Full analysis in
+[`../11-prior-art/EXISTING-SYSTEM-ANALYSIS.md`](../11-prior-art/EXISTING-SYSTEM-ANALYSIS.md).
+
+### 🔴 Q-242 — rotate the exposed Upstox credentials
+
+`Token_gen/token_gen.py` has **hardcoded Upstox `client_id`, `api_key` and `api_secret`
+committed to git**, with the access token written to a plain `.txt` file. The repository is
+private, which limits but does not remove the exposure — history rewriting cannot recall clones
+already taken. **Rotate the key and secret**; that is the fix, not deletion. Exactly the failure
+mode D-079 exists to prevent.
+
+### 🟢 D-055h WITHDRAWN — the domain switch is solved and running
+
+`metaalgo-cloudflare` is a deployed Worker doing EC2-first with a **3-second timeout** and
+automatic **Vercel failover** on timeout, error or 5xx. It beats all three options D-055h
+proposed to build and measure: the switch is **per-request rather than DNS-TTL**, **automatic
+rather than triggered**, and it protects the origin with an `X-Custom-Auth-Key` header matched
+by an **Nginx map on EC2**. A grey-cloud subdomain avoids Cloudflare Error 1003.
+
+*Consequences: the static site is on **Vercel**, not Render (D-018 corrected), and **Nginx is
+already on the EC2 box**.*
+
+**D-144 — Evaluate the existing Nginx for the per-account forward proxy** (D-005) before
+introducing squid. It is already deployed, already configured, and already trusted by the
+Worker.
+
+**D-145 — Use the existing Selenium/Chrome NSE downloader** for the weekly universe job. NSE
+fingerprints scripted clients and returns 403, but cannot distinguish a real browser — which is
+precisely what blocked `fetch_etf_reference_data.py`. Chromium and Playwright are available in
+the target environment. Broker CDN instrument masters remain preferred where they suffice
+(D-114); this is for the NSE ETF table specifically.
+
+### ⚠️ ATOM will not reproduce the existing bot's picks
+
+The live system ranks on **absolute rupee difference** (`current − mean`, sorted ascending,
+top 5). ATOM ranks on **percentage** (D-026, decided via Q-051) because rupee ranking
+systematically favours expensive ETFs.
+
+**This is intended, but it should be expected rather than discovered.** The first parallel run
+will surface different candidates — that is the change working. Worth validating against history
+before going live, and a good first use of the deferred backtest harness (V2-1).
+
+*Confirmed parameters in the live system: ₹10,000 per trade, top-5 shortlist per category, three
+categories driven by manual CSV ticker lists.*
+
+### Directly reusable
+Cloudflare Worker · Nginx auth-key map · Selenium NSE downloader · Upstox OAuth flow and
+endpoints (including **trade charges**) · Telegram messaging · the cancel-resting-LIMIT-SELL
+logic, which already has D-063's shape · the Vercel site's brand (dark navy `#0a0f1c`, cyan
+`#06b6d4`, Inter, Tailwind) for the design system.
+
+| Q-242 | 🔴 Rotate the exposed Upstox API key and secret |
+| Q-243 | Is local-only `metaalgo_capital` materially different from `metaalgo_backup`? |
+| Q-244 | Reuse the Cloudflare Worker as-is, or redeploy under ATOM? |
+| Q-245 | Keep `metaalgocapital.com` and its brand for ATOM? |
