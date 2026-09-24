@@ -1825,3 +1825,42 @@ logic, which already has D-063's shape · the Vercel site's brand (dark navy `#0
 | Q-243 | Is local-only `metaalgo_capital` materially different from `metaalgo_backup`? |
 | Q-244 | Reuse the Cloudflare Worker as-is, or redeploy under ATOM? |
 | Q-245 | Keep `metaalgocapital.com` and its brand for ATOM? |
+
+---
+
+## Round 22 — 2026-09-24
+
+**D-146 — The prior system is archived reference material only.** Correcting the round-21
+characterisation: it is **not live and has not run for about six months**. It was shut down for
+falling short on reporting, trading and more, and parts of its infrastructure are likely already
+cleaned up. **ATOM is built from scratch.** Nothing is copied or mimicked; the value taken
+forward is the problems it surfaced, not its code.
+
+**D-147 — Everything is provisioned fresh.** New AWS account, new EC2, new Elastic IPs, new
+Telegram bot, new chats, new tokens, new Supabase. No resource is inherited from the archive.
+*(This also retires Q-244 — the Cloudflare Worker is a design reference, not an artefact to
+reuse.)*
+
+**D-148 — The domain is `metaalgocapital.com`.** (Q-245 closed.)
+
+**D-149 — Deviation is measured in percentage, confirmed after analysis.** (D-026 upheld.)
+
+Measured across 127 liquid ETFs at real prices: **price dispersion within a single category
+reaches 83×** (INDEX: ₹9.35 to ₹773.40), and 89× across the universe. That is what makes the
+metric consequential.
+
+Worked scenario, real symbols and prices: rupee ranking buys **JUNIORBEES, down 1.0%**, while
+percentage ranking buys **NIFTYCASE, down 18.0%**. The two orderings are almost exactly
+inverted. On the same ₹10,000, a recovery to the mean returns **₹94 versus ₹2,171 — 23×**.
+
+Rupee ranking fails because **it ranks price level, not cheapness**: the rupee gap scales with
+price, so at 83× dispersion it approximates "always buy the most expensive ETF in the category".
+Two further inconsistencies: the **exit target is already a percentage** (3.5%, not ₹3.50), so
+ranking in rupees while exiting in percent measures different things at each end; and **order
+size is fixed in rupees so quantity adjusts** — ₹10,000 buys 12 units of a ₹773 ETF or 1,058 of
+a ₹9.35 one — meaning per-unit rupee gap is not a quantity the portfolio ever experiences.
+
+Full analysis in
+[`../04-strategy/DEVIATION-METRIC-ANALYSIS.md`](../04-strategy/DEVIATION-METRIC-ANALYSIS.md).
+
+| Q-246 | Percentage ranking is noisier on sub-rupee ETFs (one tick on a ₹9.35 ETF is 0.107%). The volume filter and corporate-action peer check already mitigate; watch in early live running |

@@ -3,8 +3,12 @@
 **Date:** 2026-09-24
 **Sources reviewed:** `metaalgo_backup` (etf_mean_reversion_bot, …_v1) · `metaalgo-cloudflare` ·
 `metaalgo-vercel-app`
-**Why this matters:** this is a **working production system** for the same strategy. It answers
-several open questions outright, validates some decisions, and contradicts one.
+**Status of that system:** ⚠️ **Archived and shut down — last running about six months ago.**
+Not live, not a reference implementation, and parts of its infrastructure have likely been
+cleaned up. It was shut down precisely because it fell short on reporting, trading and much else.
+
+**How to use it:** for **understanding only**. ATOM is built from scratch. Nothing here is to be
+copied or mimicked — the value is in the problems it already hit and solved, not in its code.
 
 > Local paths `D:\MetaAlgo\metaalgo_capital` and `…_resources` were not reachable — this session
 > runs in a cloud container with no access to a local drive. The four GitHub repositories were
@@ -149,9 +153,7 @@ categories with manual ticker lists per category (`equity_etf_sheet.csv`, `metal
 | Sell orders | Limit sells, cancel/replace | **GTT where supported, DAY fallback** (D-142) |
 | Cost of capital, tax, harvesting | Not present | **Full subsystems** |
 
-*The existing system is a working prototype of the strategy. ATOM is the productionisation of it
-— which is the right relationship, and it means the strategy itself is already proven in the
-market rather than only on paper.*
+*The archived system was an early prototype that was retired for falling short on reporting, trading and more. ATOM is a fresh build, not its successor in code — the value taken forward is the problems it surfaced, not its implementation.*
 
 ---
 
