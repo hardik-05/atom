@@ -1864,3 +1864,59 @@ Full analysis in
 [`../04-strategy/DEVIATION-METRIC-ANALYSIS.md`](../04-strategy/DEVIATION-METRIC-ANALYSIS.md).
 
 | Q-246 | Percentage ranking is noisier on sub-rupee ETFs (one tick on a ₹9.35 ETF is 0.107%). The volume filter and corporate-action peer check already mitigate; watch in early live running |
+
+---
+
+## Round 23 — 2026-09-24 · Database schema
+
+**D-150 — Database schema v1 designed.** PostgreSQL on Supabase, schema `atom`, third normal
+form with two documented exceptions, surrogate keys throughout, nothing derivable stored.
+Full DDL in [`../05-data/DATABASE-SCHEMA.md`](../05-data/DATABASE-SCHEMA.md).
+
+**Eight invariants are enforced by database constraints rather than convention**, which is the
+design's main defence against the 150 decisions drifting during the build:
+
+| Invariant | Mechanism | From |
+|---|---|---|
+| A LIVE account cannot exist without an egress IP **and** a proxy | CHECK constraint | D-136 |
+| Capital buckets sum to principal, every day | CHECK constraint | D-080 |
+| One execute run per account/universe/day | partial unique index | D-057e |
+| An order can never be sent twice | UNIQUE idempotency key | D-094 |
+| Relationship must be inside SEBI's family definition | CHECK constraint | D-092 |
+| A full PAN cannot be stored | CHECK regex on the masked form | D-128 |
+| Paper and live books never mix | `execution_mode` on the account, inherited via FK | D-041 |
+
+*`execution_mode` sitting on `trading_account` rather than on every table is what gives D-041's
+isolation for free: a paper account and a live account are different rows, and every child
+inherits the mode through its foreign key.*
+
+**D-151 — 🆕 Trading universe is a first-class entity.**
+
+> "There should be a trading-universe concept which has these securities, and at individual level
+> you can run the model on one of the universes — or multiple, so you can compare which universe
+> is working best."
+
+This generalises what was a fixed ETF list. **The weekly volume-filtered ETF list becomes one
+universe among several**, produced by a generator (`source = VOLUME_FILTER`) rather than being
+the only thing the engine can trade. Manual universes (`source = MANUAL`) are built by searching
+the instrument master by ISIN or name and ticking members.
+
+- `universe` · `universe_member` · `universe_snapshot` · `universe_snapshot_member`
+- **Universe-level freeze is distinct from holdings-level freeze (D-062):** freezing a *member*
+  means "don't consider it for new buys"; freezing a *holding* means "don't sell what I own".
+  A frozen member keeps its row, history and add-date, so unfreezing next quarter restores it
+  exactly — which is why freeze exists rather than delete-and-re-add.
+- `instrument` carries `country` and `currency`, so a future US or other-market universe is a
+  data change, not a migration.
+- Every run records `universe_id` **and** `snapshot_id`, so a past decision replays against the
+  universe as it stood then.
+
+**D-152 — Broker instrument identifiers are resolved once, in `broker_instrument`.** Each broker
+names the same security differently (`NSE_EQ|INE002A01018`, a numeric security id, an instrument
+token). Resolution happens in one table and the strategy engine only ever sees `instrument_id`.
+This is a large part of why five adapters stay tractable.
+
+### Open questions from the schema — Q-247 … Q-256
+
+The universe concept raises real design questions that the schema has deliberately left open
+rather than guessing at. Listed in the reply; all need answers before the schema is frozen.
