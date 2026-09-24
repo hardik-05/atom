@@ -219,7 +219,7 @@ we do not actually hold is the failure this ordering prevents.
 
 | ID | Item |
 |---|---|
-| Q-260 | 🔴 Corporate actions change broker quantity but not ATOM's lots. Apply the ratio to lots on operator confirmation? |
-| Q-261 | One lot per fill, or one lot per order at a weighted average? *(Rec: per fill)* |
-| Q-262 | Confirm the universe ledger and the tax ledger are maintained as two separate FIFO computations |
-| Q-263 | Should a positive residual block the run, or only a negative one? *(Rec: negative blocks, positive warns — surplus stock cannot cause a rejected order)* |
+| ~~Q-260~~ | ✅ D-165 — applied to lots on operator confirmation, preserving total cost |
+| ~~Q-261~~ | ✅ D-166 — one lot per fill; `position_lot` gains `order_fill_id` |
+| ~~Q-262~~ | ✅ D-167 — two separate FIFO computations, never blended |
+| ~~Q-263~~ | ✅ D-168 — positive warns, negative blocks |

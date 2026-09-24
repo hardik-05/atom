@@ -456,6 +456,7 @@ CREATE TABLE atom.position_lot (
     universe_id   bigint NOT NULL REFERENCES atom.universe,   -- D-156: lots belong to a universe
     instrument_id bigint NOT NULL REFERENCES atom.instrument,
     buy_order_request_id bigint REFERENCES atom.order_request,
+    order_fill_id bigint REFERENCES atom.order_fill,   -- D-166: one lot per fill
     quantity      integer NOT NULL CHECK (quantity > 0),
     quantity_open integer NOT NULL CHECK (quantity_open >= 0),
     unit_cost     numeric(18,4) NOT NULL,   -- all-in, incl. buy charges (D-076a)

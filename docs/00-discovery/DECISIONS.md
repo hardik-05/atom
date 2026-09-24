@@ -2048,3 +2048,22 @@ carries this; no separate handling is needed.
 | Q-261 | One lot per fill, or one per order at a weighted average? |
 | Q-262 | Confirm universe FIFO and tax FIFO are maintained separately |
 | Q-263 | Should a positive residual block the run, or only warn? |
+
+**D-165 — Corporate-action quantity changes are applied to lots on operator confirmation.**
+(Q-260 closed.) A split changes the broker's quantity while ATOM's lots go stale. ATOM detects
+the discrepancy, presents it with the implied ratio, and applies it to the affected lots **only
+after the operator confirms** — adjusting quantity and unit cost so total cost is preserved.
+Never automatic (D-084).
+
+**D-166 — One lot per fill.** (Q-261 closed.) `position_lot` gains `order_fill_id`. An order
+filling in three tranches creates three lots. Lots are already the unit of cost-of-capital, FIFO
+and tax classification, so collapsing them would discard fill prices that cannot be recovered.
+
+**D-167 — The universe ledger and the tax ledger are two separate FIFO computations.**
+(Q-262 closed.) Universe FIFO drives P&L, targets, averaging and reporting; tax FIFO (per demat
+account, D-127) drives capital gains, set-off and exemption. Same fills, two orderings, never
+blended in a report.
+
+**D-168 — A positive residual warns; only a negative one blocks.** (Q-263 closed.) Surplus stock
+cannot cause a rejected order, so it is surfaced for classification without halting the run. A
+shortfall still blocks, since ATOM would otherwise sell what it does not hold.
