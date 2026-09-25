@@ -793,13 +793,25 @@ CREATE TABLE atom.harvest_chain (
     harvest_chain_id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     sold_lot_id  bigint NOT NULL REFERENCES atom.position_lot,
     proxy_lot_id bigint REFERENCES atom.position_lot,
-    correlation  numeric(18,4) NOT NULL,
-    proxy_tier   text NOT NULL,          -- TIER1 | TIER2   (D-103)
+    correlation  numeric(18,4),          -- NULL in v1 (D-163); V2-14 restores it
+    proxy_tier   text,                   -- NULL in v1 (D-163); TIER1 | TIER2 in V2-14
     booked_loss  numeric(18,4) NOT NULL,
+    carried_basis_amount numeric(18,4),  -- D-188: what the synthetic basis carries forward
+    chain_depth  integer NOT NULL DEFAULT 1,   -- D-189: harvests deep, 1 = first
+    selected_by  text,                   -- operator who chose the pairing (D-163)
     status       text NOT NULL,          -- PROPOSED | EXECUTED | INCOMPLETE  (D-070b)
     approved_by  text,
     created_at   timestamptz NOT NULL DEFAULT now()
 );
+
+> ⚠️ **`correlation` and `proxy_tier` were `NOT NULL` until 2026-09-25.** They were written
+> before D-163 made proxy selection manual — "no predefined proxy buckets, no correlation floor,
+> no automatic matching in v1" — so they demanded data v1 never computes. Now nullable; they
+> stay in the schema because V2-14 restores correlation matching.
+>
+> `carried_basis_amount` is **stored, not recomputed.** It is the number that explains a lot's
+> synthetic cost basis, and re-deriving it years later would depend on data that may have been
+> corrected since. See [`HARVEST-COST-BASIS.md`](../04-strategy/HARVEST-COST-BASIS.md).
 
 CREATE TABLE atom.action_audit (
     action_audit_id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,

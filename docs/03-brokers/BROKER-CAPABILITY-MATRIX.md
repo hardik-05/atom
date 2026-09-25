@@ -192,7 +192,7 @@ it after a rejection costs a trading day.
 | ~~Algo ID applicability at 2 OPS~~ | ~~All five~~ | ✅ **Q-268 closed 2026-09-24** — no Algo ID required, verified by the operator (D-181) |
 | Access-token lifetime | Shoonya | **Q-269** |
 | GTT endpoint + alert-type enum | Shoonya | **Q-271** (was Q-237) 🔴 |
-| Per-trade charge breakdown | ~~Zerodha~~, Groww, Shoonya | Q-273 — **Zerodha resolved:** `POST /charges/orders` (D-186) |
+| Per-trade charge breakdown | ~~Zerodha~~, ~~Groww~~, Shoonya | Q-273 — **Zerodha** ✅ `POST /charges/orders` (D-186) · **Groww** ❌ aggregate only, answered (D-192) · **Dhan** ✅ per trade |
 | Static-IP whitelisting procedure | Zerodha, Groww | Q-274 |
 | Does a GTT survive its holding being sold by other means? | All five | Q-186 (open since round 1) |
 | Data-API / subscription cost | Dhan, Groww | Q-275 |
@@ -221,7 +221,7 @@ developer documentation has been read end to end:
 | # | Broker | Status |
 |---|---|---|
 | 1 | **Zerodha** | ✅ [`adapters/ZERODHA-ADAPTER.md`](adapters/ZERODHA-ADAPTER.md) |
-| 2 | Groww | ⏳ next |
-| 3 | Upstox | ⏳ |
+| 2 | **Groww** | ✅ [`adapters/GROWW-ADAPTER.md`](adapters/GROWW-ADAPTER.md) |
+| 3 | Upstox | ⏳ next |
 | 4 | Dhan | ⏳ |
 | 5 | Shoonya | ⏳ last (GTT surface unpublished, Q-271) |

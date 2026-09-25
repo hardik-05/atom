@@ -2449,3 +2449,164 @@ compromise reaches back into the engine's general rule.
 | Q-278 | Zerodha `/trades` documents a `filled` attribute but the sample payload shows `quantity` | Fill ingestion |
 | Q-279 | Zerodha has **no ledger endpoint**. How are deposits/withdrawals captured — manual statement upload, or `utilised.payout` deltas? | Cost of capital on Zerodha |
 | Q-281 | Does a Zerodha GTT survive its holding being sold by other means, or is it auto-`disabled`? | GTT hygiene |
+
+---
+
+## Round 29 — 2026-09-25 · Harvest cost basis completed; Groww adapter
+
+### The synthetic basis, finished
+
+**D-188 — The harvest carry-over is an *amount*, not a price.** (Extends D-019.)
+
+> "If a security is sold at a loss, the proxy's buying average price should reflect the one we
+> initially bought… holistically it was a holding which was bought at 100 and not at 90. It
+> appears to be 90 on paper due to tax loss."
+
+D-019 fixed the principle with a worked figure. The general rule, which that example hides
+because the numbers coincide, is that **the proxy usually trades at a different price**, so the
+quantity differs. What survives the substitution is the **rupee amount of original capital**:
+
+```
+carried_basis_amount = all-in actual cost of the harvested lot(s)
+synthetic_unit_cost  = carried_basis_amount ÷ proxy_quantity_acquired
+```
+
+A @ ₹100 × 10 = ₹1,000 → sold @ ₹90 → ₹900 buys 20 units of B @ ₹45.
+B's tax basis is **₹45**; B's strategy basis is **₹1,000 ÷ 20 = ₹50**. The 3.5% target is
+₹51.75/unit = ₹1,035 — the original ₹1,000 plus 3.5%.
+
+**Why this matters, stated plainly:** computed off ₹45 the target would be ₹931.50, which is
+**₹68.50 below the capital the investor committed** — and ATOM would report it as a 3.5%
+profit. Without the carry-over, harvesting *manufactures a phantom profit*. That is the failure
+mode this rule exists to prevent.
+
+The governing principle: **a harvest changes the tax outcome and nothing else.** It must be
+strategy-neutral. If it also reset the profit target, it would be changing the strategy, which
+is not what harvesting is for.
+
+**D-189 — Averaging blends on `COALESCE(synthetic, actual)`.** (The operator's second case.)
+
+> "What if a proxy is averaged at that time? It would be the average price of the security for
+> which the harvest took place — so 100 at the average price, and not 90 at the average price."
+
+Every lot carries both bases. Two averages are maintained per instrument, and they answer
+different questions:
+
+```sql
+strategy_average = SUM(qty_open * COALESCE(synthetic_cost_basis, unit_cost)) / SUM(qty_open)
+actual_average   = SUM(qty_open * unit_cost)                                / SUM(qty_open)
+```
+
+Pre-existing 10 @ ₹48 + harvest proxy 20 @ ₹45 actual / ₹50 synthetic →
+**actual ₹46.00** (tax, real P&L, cost of capital) · **strategy ₹49.33** (deviation, sell
+trigger, GTT).
+
+A later average-down with fresh capital creates a lot with no carry-over, so the synthetic
+basis **dilutes proportionally** — correct, because that money genuinely entered at market.
+Because the rule is per-lot and per-unit, partial sells, partial harvests and repeated
+averaging all fall out with no special cases, and **no migration is needed** — the nullable
+`position_lot.synthetic_cost_basis` column from D-019 already carries it.
+
+**D-190 — The two bases are never conflated, and reporting shows three numbers.**
+
+| Basis | Used by |
+|---|---|
+| **Actual** (`unit_cost`) | tax engine · real P&L · cost of capital · broker reconciliation · charges |
+| **Synthetic** (`synthetic_cost_basis`) | deviation metric · sell trigger · GTT price · averaging |
+
+Using the synthetic basis for **tax** would double-count a loss already booked at the harvest
+sale — wrong and illegal. Using the actual basis for the **strategy** produces the phantom
+profit above.
+
+Q-207 already split "profit" from "taxable gain". The synthetic basis makes it **three**, all
+of which appear on the position detail screen with the basis named beside each figure — never a
+bare "P&L":
+
+| Number | vs | Answers |
+|---|---|---|
+| **Strategy return** | synthetic | "Are we back above the capital we committed?" |
+| **Cash return** | actual | "What did this position's money actually do?" |
+| **Taxable gain** | actual, tax FIFO | "What does the tax engine see?" |
+
+Cost of capital accrues on the **actual** ₹900 — interest is charged on real money, not on a
+strategy fiction.
+
+**D-191 — `harvest_chain` corrected; it was inconsistent with D-163.**
+`correlation` and `proxy_tier` were `NOT NULL`. They were written before D-163 made proxy
+selection manual — *"no predefined proxy buckets, no correlation floor, no automatic matching in
+v1"* — so the table demanded data v1 never produces. **Both are now nullable** (retained for
+V2-14, which restores correlation matching), and three columns are added:
+`carried_basis_amount`, `chain_depth`, `selected_by`.
+
+`carried_basis_amount` is **stored rather than recomputed**: it is the number that explains a
+synthetic basis, and re-deriving it years later would depend on data that may have been
+corrected since.
+
+Full specification: [`docs/04-strategy/HARVEST-COST-BASIS.md`](../04-strategy/HARVEST-COST-BASIS.md).
+
+### Groww adapter
+
+**D-192 — Groww is the reference implementation for identity and sellability.**
+[`adapters/GROWW-ADAPTER.md`](../03-brokers/adapters/GROWW-ADAPTER.md) — read against seven
+Groww API pages.
+
+It is Zerodha's opposite on exactly the two axes that made Zerodha hard:
+
+| | Zerodha | Groww |
+|---|---|---|
+| ISIN in the instrument master | ❌ (D-187 workaround) | ✅ — and the CSV is **public**, fetched once for all accounts with no token |
+| Sellable quantity | derived from 4 fields | ✅ **`demat_free_quantity`**, direct |
+| GTT identity | ❌ none until fired | ✅ `reference_id` |
+| Order idempotency | ❌ | ✅ **required** `order_reference_id`; duplicate → `GA007`; lookup by ATOM's own id |
+| Per-component charges | ✅ `/charges/orders` | ❌ aggregate `brokerage_and_charges` only |
+
+Groww's `demat_free_quantity` **is** D-182's cap with no derivation, so it becomes the reference
+the other four adapters approximate.
+
+Three findings that changed the engine rather than the adapter:
+
+1. **`client_ref` has a *lower* bound of 8 characters.** Groww is the only broker with one.
+   Combined with Zerodha's 20-character ceiling, the canonical format is fixed: **8–20
+   alphanumeric, ≤ 2 hyphens**, enforced in the shared generator.
+2. **Pre-flight tradability is possible on Groww alone.** The instrument CSV carries
+   `buy_allowed`, `sell_allowed` and `is_reserved`. ATOM drops a candidate *before* placing an
+   order that would be rejected. This does not contradict D-052 ("let the order fail if money is
+   not present") — that is about **funds**, which cannot be known reliably ahead of the
+   exchange. Tradability can be, so failing on it is avoidable and therefore should be avoided.
+3. **Q-273 now has a complete answer for three of five.** Per-component charges: Dhan ✅ (per
+   trade), Zerodha ✅ (`/charges/orders`, and it prices imaginary orders), **Groww ❌** — a
+   single aggregate only. So on Groww the charges contrast shows ATOM's computed breakdown
+   against one broker total; the components stay ATOM's model and only the sum is checkable.
+   **That degradation is labelled in the UI, not silent.**
+
+Two hazards worth carrying into the other adapters as things to check for:
+`duration: "DAY"` on a Groww GTT governs the **order that fires**, not the GTT (which is forced
+to one year); and the smart-order list **defaults to today and caps at a one-month window**, so
+the cancel-all-first verification must paginate explicitly or it will report a clean book while
+year-old GTTs are live.
+
+---
+
+### Questions raised — harvest cost basis
+
+Raised under D-054c: a new rule touches every connected component.
+
+| ID | Question | My recommendation |
+|---|---|---|
+| **Q-282** 🔴 | **Chained harvests** — B is harvested into C. Does C carry B's *synthetic* (₹1,000) or B's *actual* (₹810)? | **Synthetic.** "Recover the capital originally committed" is abandoned after one hop otherwise. Cost: the basis drifts further above cash each hop and the position can become effectively unsellable — so store `chain_depth`, surface it, warn above a configurable 3, rather than capping silently |
+| **Q-283** | **Leftover cash** — ₹900 proceeds, B at ₹45.30 → 19 units = ₹860.70, ₹39.30 idle. Full ₹1,000 on 19 units, or scale to what was deployed? | **Scale.** Otherwise the proxy is asked to earn back money sitting in cash |
+| **Q-284** | **Harvest charges** — does the carried amount include the sell-side charges on the harvested lot? | **Yes.** Excluding them means harvesting silently costs the investor and the strategy never sees it. Counter-argument: on a thin threshold it can make the target unreachable — which is arguably the correct signal that the harvest was not worth doing |
+| **Q-285** | **Does a synthetic basis ever expire?** | **No automatic expiry, ever.** An explicit, audited *"release synthetic basis"* operator action with a mandatory reason. Matches the standing never-auto-un-release posture |
+| **Q-286** 🔴 | **Does the buy side use the synthetic basis too?** B at ₹45 vs synthetic ₹50 is a −10% deviation — a **buy signal**. ATOM would average down into the proxy it just bought | **No recommendation — genuinely yours.** Weak lean toward consistency (synthetic everywhere), with the one-lot-per-instrument-per-day cap limiting how fast concentration builds. But using actual for buys is defensible and I will not assume it |
+| **Q-287** | **Must the proxy sit in the same universe as the harvested lot?** | **Yes, as a CHECK.** Carrying basis across universes moves capital between them and corrupts the per-universe comparison universes exist to enable |
+| **Q-288** | **Should the tax benefit reduce the carried amount?** The ₹100 loss is worth ~₹20 | **No.** It depends on year-end set-offs, exemption and slab — making a resting GTT's price move whenever the tax picture moves. Carry gross; the benefit belongs in the tax report where it is visible. Conservative by choice, not oversight |
+
+### Questions raised — Groww
+
+| ID | Question |
+|---|---|
+| Q-289 | Does Groww's holdings `quantity` ("net quantity") **include** `t1_quantity`, as Zerodha's does not? `total_quantity` in the attribution identity depends on it |
+| Q-290 | Can `settlement_number` on Groww trades give **observed** settlement dates for the SETTLEMENT capital bucket, instead of inferred T+1 (D-050/D-080)? |
+| Q-291 | Does Groww require any depository/EDIS-style sell authorisation? Not mentioned anywhere — absence is not confirmation |
+| Q-292 | `EXECUTED` vs `COMPLETED` — what distinguishes them? (Both → `FILLED`; documentation clarity only) |
+| Q-293 | Which error code carries an insufficient-funds rejection on Groww, and is the reason machine-readable in `error.metadata`? |
