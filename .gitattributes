@@ -28,6 +28,12 @@
 *.yml       text eol=lf
 *.yaml      text eol=lf
 Makefile    text eol=lf
+*.service   text eol=lf
+*.tmpl      text eol=lf
+# Everything under deploy/ is copied verbatim onto a Linux host: a systemd unit
+# with CRLF reads "" as part of every value, and fails in ways that name the
+# value rather than the line ending.
+deploy/**   text eol=lf
 *.mk        text eol=lf
 
 # Windows-native files keep CRLF.

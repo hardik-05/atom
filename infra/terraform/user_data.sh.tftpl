@@ -115,7 +115,11 @@ cat > /usr/local/bin/atom-idle-check <<'IDLE'
 # for a crashed or abandoned session.
 set -euo pipefail
 THRESHOLD_MIN=${idle_shutdown_minutes}
-MARKER=/var/run/atom-last-activity
+# /run/atom is the engine's RuntimeDirectory, owned by the unprivileged atom
+# user. A marker in root-owned /var/run could never be touched by the engine,
+# so console use would not count as activity and the instance would stop an
+# hour after boot however busy it was.
+MARKER=/run/atom/last-activity
 [ -f "$MARKER" ] || date +%s > "$MARKER"
 LAST=$(cat "$MARKER")
 NOW=$(date +%s)

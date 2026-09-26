@@ -55,6 +55,30 @@ resource "aws_iam_role_policy" "engine" {
         Resource = [aws_kms_key.atom.arn]
       },
       {
+        # Writing the day's broker token to /atom/sessions/* as a SecureString
+        # encrypts it with this key. Decrypt alone -- which is all this role had --
+        # would have failed the first token exchange with AccessDenied from KMS,
+        # an error that names the key and not the thing that was being written.
+        #
+        # Scoped by encryption context to SSM parameters under /atom/sessions/,
+        # so this grant cannot be used to encrypt anything else with the key.
+        Sid      = "EncryptDailySessions"
+        Effect   = "Allow"
+        Action   = ["kms:Encrypt", "kms:GenerateDataKey"]
+        Resource = [aws_kms_key.atom.arn]
+        Condition = {
+          StringLike = {
+            "kms:EncryptionContext:PARAMETER_ARN" = "arn:aws:ssm:${var.region}:${data.aws_caller_identity.current.account_id}:parameter/atom/sessions/*"
+          }
+        }
+      },
+      {
+        Sid      = "ReadReleases"
+        Effect   = "Allow"
+        Action   = ["s3:GetObject"]
+        Resource = ["${aws_s3_bucket.artifacts.arn}/releases/*"]
+      },
+      {
         Sid    = "AppendLogs"
         Effect = "Allow"
         Action = ["s3:PutObject", "s3:GetObject", "s3:ListBucket"]

@@ -41,3 +41,10 @@ frontend/dist/
 .env
 .env.*
 !.env.example
+
+# Terraform plan files embed resolved values, including anything sensitive the
+# plan touched. They are local, one-shot artefacts.
+*.tfplan
+
+# TypeScript incremental build cache.
+*.tsbuildinfo

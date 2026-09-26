@@ -44,3 +44,7 @@ output "archive_bucket" {
 output "kms_key_arn" {
   value = aws_kms_key.atom.arn
 }
+
+output "artifacts_bucket" {
+  value = aws_s3_bucket.artifacts.id
+}

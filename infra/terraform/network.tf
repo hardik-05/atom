@@ -43,8 +43,10 @@ resource "aws_route_table_association" "public" {
 }
 
 resource "aws_security_group" "engine" {
-  name        = "atom-engine"
-  description = "ATOM engine: console on 443, ACME/redirect on 80; port 22 closed by design"
+  name = "atom-engine"
+  # description is ForceNew in AWS: changing it replaces the group, and a group
+  # attached to a running instance cannot be deleted first. Left as created.
+  description = "ATOM engine: console inbound on 443 only; port 22 closed by design"
   vpc_id      = aws_vpc.main.id
 
   # Port 22 is deliberately absent. SSM Session Manager gives a shell through the
