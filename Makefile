@@ -1,7 +1,12 @@
-.PHONY: install fmt lint type test cov check clean
+.PHONY: install fmt lint type test cov check clean db-verify
+
+# Every target runs through `python3 -m`, not the bare console scripts. The
+# scripts on PATH here are uv-installed tools with their own interpreters, so
+# `pytest` and `mypy` would not see the project's dependencies at all.
+PY := python3
 
 install:
-	python -m pip install -e ".[dev]"
+	$(PY) -m pip install -e ".[dev]"
 
 fmt:
 	ruff format atom tests
@@ -13,13 +18,25 @@ lint:
 	lint-imports
 
 type:
-	mypy --python-executable=$$(which python3) atom
+	mypy --python-executable=$$(which $(PY)) atom
 
 test:
-	pytest
+	$(PY) -m pytest
 
 cov:
-	pytest --cov --cov-report=term-missing
+	$(PY) -m pytest --cov --cov-report=term-missing
+
+# Applies every migration to a fresh schema and asserts the constraints reject
+# what they exist to reject. Needs ATOM_DATABASE_URL pointing at a database you
+# do not mind dropping the `atom` schema in.
+db-verify:
+	psql "$$ATOM_DATABASE_URL" -v ON_ERROR_STOP=1 -q \
+		-c 'DROP SCHEMA IF EXISTS atom CASCADE'
+	for f in atom/persistence/migrations/0*.sql; do \
+		psql "$$ATOM_DATABASE_URL" -v ON_ERROR_STOP=1 -q -f "$$f" || exit 1; \
+	done
+	psql "$$ATOM_DATABASE_URL" -v ON_ERROR_STOP=1 -q \
+		-f atom/persistence/migrations/verify_constraints.sql
 
 check: lint type test
 
