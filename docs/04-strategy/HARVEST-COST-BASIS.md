@@ -94,6 +94,94 @@ original capital**, reported as a profit. That is the bug this rule exists to pr
 
 ---
 
+## 3a. The three cases, worked end to end
+
+Restated from the operator's own walkthrough (2026-09-26), because the rule reads differently
+depending on which case you hold in mind. **All three are the same formula** — §3's amount-based
+carry-over — but that is only obvious once they are side by side.
+
+### Case 1 — single lot, proxy at the same price
+
+| Step | |
+|---|---|
+| Buy A | 10 @ ₹100 = **₹1,000** |
+| A falls to ₹90 | |
+| Sell A, buy proxy at ₹90 | ₹900 → 10 units. *"Our investment stays the same."* |
+| Proxy synthetic basis | ₹1,000 ÷ 10 = **₹100** |
+| Sell target @ 3.5% | **₹103.50** |
+
+> "Whenever harvesting happens, the sell price of the proxy will be as of buying price of the
+> initial security."
+
+### Case 2 — the proxy is then averaged
+
+The averaging buy is *"altogether a different trade itself"* and gets its own order.
+
+| Tranche | Qty | Basis | Target @ 3.5% |
+|---|---|---|---|
+| **S** — from the harvest | 10 | ₹100 | **₹103.50** |
+| **A** — averaged at ₹85 | 10 | ₹85 | **₹87.98** |
+
+Two orders. Covered in §4.
+
+### Case 3 — harvesting a security that was *itself* already averaged 🆕
+
+This is the case the operator raised last, and it is the one that shows why the carry-over must be
+an **amount**.
+
+| Step | |
+|---|---|
+| Buy X | 10 @ ₹100 = ₹1,000 |
+| Average X | 10 @ ₹90 = ₹900 |
+| **X's average buy price** | ₹1,900 ÷ 20 = **₹95** |
+| X falls ~10% from ₹95 | → ~₹86 |
+| Harvest: sell 20 @ ₹86 | ₹1,720 · loss **₹180** booked |
+| Buy proxy at ₹86 | 20 units |
+| Proxy synthetic basis | ₹1,900 ÷ 20 = **₹95** |
+| Sell target @ 3.5% | **₹98.33** |
+
+> "You take the average price which is 95 rupees… the selling price of the proxy security bought
+> at 85, 86 — that will be 95 plus the percentage. So that's how even an average security can be
+> used for harvesting."
+
+**The harvest collapses the source position's lots into one carried basis.** X had two lots at
+₹100 and ₹90; the proxy gets **one** synthetic tranche at ₹95, not two tranches at ₹100 and ₹90.
+This is D-205, and it follows automatically from §3: sum the actual cost of **all** harvested lots,
+divide by the proxy quantity acquired.
+
+**So the three cases need no special-casing.** §3's formula produces ₹100, ₹100 and ₹95
+respectively without branching. That is the test of whether the rule was stated at the right level.
+
+### 3a.1 🔴 One place where "sell at ₹100" and the arithmetic diverge
+
+Every example above has the proxy trading at **the same price** as the harvested security's sale
+price, so proxy quantity equals source quantity and "the sell price of the proxy is the buying
+price of the initial security" is literally true per unit.
+
+**When the proxy trades at a different price it stops being true per unit**, and taking it
+literally overstates the target badly:
+
+| | |
+|---|---|
+| A | 10 @ ₹100 = ₹1,000 |
+| Sell at ₹90 | ₹900 proceeds |
+| Proxy trades at **₹45** | ₹900 → **20 units** |
+| ❌ Literal reading: ₹100/unit | 20 × ₹100 = **₹2,000** — double the capital committed |
+| ✅ Amount-based: ₹1,000 ÷ 20 | **₹50/unit** → 20 × ₹51.75 = ₹1,035 = ₹1,000 + 3.5% |
+
+The invariant the operator actually wants is *"recover the capital originally committed, plus the
+percentage"* — which is a **rupee amount**, and only coincides with a per-unit price when the two
+securities trade at similar prices. ATOM therefore stores and carries the **amount**
+(`harvest_chain.carried_basis_amount`) and derives the per-unit synthetic basis from it.
+
+> **Q-311 — confirm.** For a proxy at a materially different price from the harvested security,
+> the target is `carried_amount ÷ proxy_quantity × (1 + pct)`, **not** the harvested security's
+> per-unit price. In practice most proxies inside one ETF universe trade in a similar range so the
+> two rarely diverge much — but a ₹45 proxy against a ₹100 source would double the target, so this
+> needs to be right rather than approximately right.
+
+---
+
 ## 4. Averaging a proxy — tranches, not a blend
 
 > "What if a proxy is averaged at that time? It would be the average price of the security for
@@ -158,9 +246,13 @@ tranche S empty. Nothing about the normal path changes.
 
 ### 4.3 Multiple synthetic lots blend *with each other*
 
-Chaining is banned (§4.4), but two different securities may be harvested into the **same** proxy
-instrument at different times — A → B in March, C → B in July. B then holds two synthetic lots
-with different bases.
+**First, within one harvest.** If the harvested security had several lots (§3a case 3), they
+collapse into **one** carried basis — the weighted average of their actual costs — and produce
+**one** synthetic tranche. A source position with five lots does not create five tranches.
+
+**Second, across harvests.** Chaining is banned (§4.4), but two different securities may be
+harvested into the **same** proxy instrument at different times — A → B in March, C → B in July.
+B then holds two synthetic lots with different bases.
 
 **These blend into one synthetic tranche**, weighted by `synthetic_cost_basis`. The alternative —
 one sell order per harvest — would grow the order count without bound and make the GTT book

@@ -2814,3 +2814,137 @@ to handle a destructive endpoint is to have none.
 | Q-307 | Any Shoonya per-instrument tradability flag? None found | Pre-flight checks |
 | Q-308 | Shoonya `OrderBook` status strings — prose only, never tabulated | Status mapping |
 | Q-309 | Shoonya error codes, or is `emsg` prose the only surface? | Error robustness |
+
+---
+
+## Round 31 — 2026-09-26 · Harvest cases confirmed; no margin; tick size resolved
+
+**D-205 — Harvesting collapses the source position's lots into one carried basis.**
+
+The operator's third case, which is the one that proves the rule was stated at the right level:
+
+| Step | |
+|---|---|
+| Buy X 10 @ ₹100 · average X 10 @ ₹90 | average buy price **₹95** |
+| X falls ~10% from ₹95 → ~₹86, harvest | sell 20 @ ₹86, loss ₹180 booked |
+| Buy proxy at ₹86 → 20 units | synthetic basis = ₹1,900 ÷ 20 = **₹95** |
+| Sell target @ 3.5% | **₹98.33** |
+
+> "You take the average price which is 95 rupees… the selling price of the proxy security bought
+> at 85, 86 — that will be 95 plus the percentage. So that's how even an average security can be
+> used for harvesting."
+
+**A source position with five lots produces one synthetic tranche, not five.** This falls out of
+D-188 without a special case: sum the actual cost of *all* harvested lots, divide by the proxy
+quantity acquired. The three cases the operator walked through — single lot, averaged proxy,
+averaged source — all resolve through the same formula, producing ₹100, ₹100 and ₹95. That is the
+test of whether a rule is at the right altitude, and it passes.
+
+**D-206 — 🔴 The carry-over is an amount; the per-unit price only coincides when prices match.**
+(Raised as Q-311.)
+
+Every worked example so far has the proxy trading at the **same price** as the harvested
+security's sale price, so proxy quantity equals source quantity and *"the sell price of the proxy
+is the buying price of the initial security"* is literally true per unit.
+
+**It stops being true when the proxy trades at a different price:**
+
+| | |
+|---|---|
+| A: 10 @ ₹100 = ₹1,000 → sold at ₹90 → ₹900 | |
+| Proxy trades at **₹45** → **20 units** | |
+| ❌ Literal ₹100/unit | 20 × ₹100 = **₹2,000** — double the capital committed |
+| ✅ ₹1,000 ÷ 20 = ₹50/unit | 20 × ₹51.75 = ₹1,035 = ₹1,000 + 3.5% ✓ |
+
+The invariant the operator wants is *recover the capital originally committed, plus the
+percentage* — a **rupee amount**. ATOM stores `harvest_chain.carried_basis_amount` and derives the
+per-unit synthetic basis from it. Flagged rather than assumed because in practice proxies inside
+one ETF universe trade in a similar range, so the two readings rarely diverge much — but a ₹45
+proxy against a ₹100 source would double the target, and that is not a rounding difference.
+
+**D-207 — No margin facility anywhere in the system. MTF is out of scope.**
+
+> "There is nothing related to margin. We are not going to use any margin facility as part of this
+> system. That is totally out of scope."
+
+This is broader than the question that prompted it and worth recording as a standing constraint:
+
+| | |
+|---|---|
+| Product type | **`CNC` / delivery only**, every broker, every order |
+| MTF | Never used. Upstox `MTF`, Dhan `MTF`, Zerodha `MTF`, Groww `MIS`/`NRML` are never sent |
+| Intraday | Never used — `I` / `INTRADAY` / `MIS` never sent |
+| Leverage | None. `quantity` is always fully funded by cleared cash |
+| Pledging / collateral | ATOM never pledges. Collateral quantities are **read** (they reduce sellable quantity, D-182) but never created |
+| Cover / Bracket orders | Never used |
+
+Consequences already reflected in the five adapter documents: the outbound product field is a
+constant, not a variable, and `MTF_LEVERAGE` (Dhan), `mtf_enabled` / `mtf_bracket` (Upstox),
+`mtf` (Dhan profile) and the `mtf` block in Zerodha holdings are all read-and-ignore. The
+`intraday_margin` / `intraday_leverage` fields in Upstox's MIS instrument file are not fetched at
+all.
+
+**D-208 — ASM/GSM is out of scope.** (Q-304 closed.)
+
+The operator read the ASM/GSM flag as a margin concern and ruled it out with margin generally.
+
+*One factual note, recorded for completeness rather than to reopen it:* ASM/GSM is not purely a
+margin mechanism — it can also impose trade-for-trade settlement and narrowed price bands, which
+would affect a delivery-only system. But the practical exposure is close to nil: ASM and GSM
+target illiquid and manipulation-prone single stocks, and **index ETFs essentially never enter
+either list**. The flag is not read, and `EXCLUSION-AND-FREEZE.md` keeps its existing manual
+exclusion mechanism for anything that does need freezing. If a future universe holds single
+stocks (a manual universe under D-160), this is worth revisiting — noted in the V2 backlog rather
+than left as an open question.
+
+**D-209 — Broker `tick_size` fields are not trusted. ATOM uses its own.** (Q-300 resolved by
+removing the dependency.)
+
+The operator's answer addressed **quantity**, which is a different concern from the one Q-300
+raised, so both are settled here:
+
+**Quantity — confirms D-059b, already decided:**
+
+```
+quantity = floor( (trade_amount × budget_buffer_pct) / ltp )
+```
+
+> "You multiply the total price into 99 or 97% to get the price to accommodate the brokerage, and
+> then divide it to get the quantity. You should only consider the whole number quantity."
+
+Default buffer **99%**, configurable (D-059b). `floor` is explicit: ₹20,000 × 0.99 ÷ ₹2,440 = 8.11
+→ **8 units**. Indian equity markets have no fractional shares, so the remainder stays as cash.
+Nothing changes; the rule is confirmed.
+
+**Price — the tick-size question, resolved differently.** Tick size does not affect quantity; it
+constrains the **limit price**, which must be a whole multiple of the tick or the exchange rejects
+it. Upstox's JSON master reports `tick_size: 5.0` for an NSE equity where its own deprecated CSV
+reported `0.05` — a 100× discrepancy that would round prices to ₹5 increments if read as rupees.
+
+Rather than resolve the ambiguity, **ATOM removes the dependency**: limit prices are rounded using
+**`atom.instrument.tick_size`**, sourced from ATOM's own NSE-derived reference data
+(`data/reference/etf-reference-data-*.csv`), and **no broker's `tick_size` field is used for
+pricing at all**. Broker values are ingested into `broker_instrument` for reference and
+**cross-checked** — a mismatch beyond a 100× factor logs a warning — but never drive an order.
+
+*This is the better answer regardless of what Upstox means by 5.0.* Five brokers reporting the
+same exchange-defined quantity in inconsistent units is a hazard whichever way each one resolves;
+one authoritative source removes it. The real remaining question is **Q-179** — whether ₹0.01 is
+universal across NSE ETFs or varies by price band — which is a question about NSE, not about any
+broker, and is answered from NSE's own circulars.
+
+---
+
+### Questions closed
+
+| ID | Resolution |
+|---|---|
+| **Q-300** | ✅ Resolved by removing the dependency — ATOM uses its own `tick_size`, never a broker's (D-209) |
+| **Q-304** | ✅ Out of scope — ASM/GSM not read; margin out of scope generally (D-207, D-208) |
+| Q-294 | ✅ Implicitly confirmed — the harvest target always derives from the harvested security, so the synthetic basis drives the decision |
+
+### Questions raised
+
+| ID | Question | Blocks |
+|---|---|---|
+| **Q-311** | For a proxy trading at a materially different price from the harvested security, confirm the target is `carried_amount ÷ proxy_qty × (1 + pct)` rather than the source's per-unit price (D-206) | Harvest target correctness |

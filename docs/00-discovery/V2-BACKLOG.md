@@ -23,3 +23,4 @@ accidentally built.
 
 *Add to this list rather than dropping an idea in conversation — a deferred item with a
 recorded reason is recoverable; one that was merely mentioned is not.*
+| V2-15 | **ASM/GSM surveillance freeze** | Not read; margin and surveillance ruled out of scope (D-208) | ASM/GSM is not purely a margin mechanism — it can impose trade-for-trade settlement and narrowed price bands, which would affect a delivery-only system. Exposure is near nil today because ASM and GSM target illiquid single stocks and **index ETFs essentially never enter either list**, and Dhan is the only broker publishing the flag. **Worth revisiting if a manual universe ever holds single stocks** (D-160) |
