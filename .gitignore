@@ -25,3 +25,19 @@ frontend/dist/
 
 # The provider lock file IS committed (infra/terraform/.terraform.lock.hcl): it
 # pins provider versions so a later apply cannot silently pick up a new one.
+
+# Credential files. Never committed, under any name.
+#
+# An AWS key CSV was found in the working directory of this repo. It was never
+# tracked, but `git add -A` would have taken it, and a pushed access key is
+# compromised from the moment it is pushed -- rotation is the only remedy, not
+# deletion, because the history keeps it.
+*credentials*.csv
+*credentials*.json
+*accessKeys*.csv
+*.pem
+*.p12
+*.pfx
+.env
+.env.*
+!.env.example
