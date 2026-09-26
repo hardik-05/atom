@@ -210,6 +210,31 @@ class CanonicalFill:
 → `atom.order_fill`, and **one `position_lot` per fill** (D-166). Never aggregate fills before
 persisting: the lot grain is the fill, and averaging them destroys the tax-FIFO basis.
 
+### 3.4a Sell tranches — the sell pass emits a list, not an order (D-195, D-198)
+
+A position whose lots carry a **mix** of synthetic and actual cost bases cannot be sold against
+one blended average: the proxy units would exit below the capital they are recovering and the
+shortfall would be booked as a gain. So the sell pass produces **tranches**:
+
+```python
+@dataclass(frozen=True)
+class SellTranche:
+    instrument_id: int
+    basis_kind:    Literal["SYNTHETIC", "ACTUAL"]
+    quantity:      int
+    target_price:  Decimal     # weighted basis × (1 + threshold)
+```
+
+At most **two** per (account, universe, instrument): synthetic lots blend with each other, actual
+lots blend with each other, and only the boundary between them splits. An instrument with no
+synthetic lots yields a single `ACTUAL` tranche — today's behaviour exactly.
+
+Each tranche becomes one `GttIntent`. D-156 already requires multiple GTTs per instrument and
+D-164 confirmed all five brokers support it, so this needs no capability change — but the
+cancel-all-first step must expect **up to two** ATOM sell orders per instrument and not treat the
+second as a duplicate. Full derivation in
+[`../04-strategy/HARVEST-COST-BASIS.md`](../04-strategy/HARVEST-COST-BASIS.md) §4.
+
 ### 3.5 `GttOrder`
 
 ```python
@@ -505,4 +530,20 @@ D-056b (raw HTTP, not vendor SDKs) · D-063/D-064 (GTT cancel-all-first, ATOM's 
 D-094 (write intent before send) · D-166 (one lot per fill) · D-170/D-178 (token probed, not
 assumed) · D-173 (static IP; egress verified separately) · D-174 (no MARKET) · D-175
 (`client_ref`) · D-176 (Zerodha GTT identity is DB-only) · D-179 (charges ground truth) ·
-D-180 (unknown status is in-flight)
+D-180 (unknown status is in-flight) · D-195/D-198 (sell tranches) · D-199 (`lookup_by_client_ref`
+on Dhan)
+
+---
+
+## 11. Per-broker documents
+
+| # | Broker | Document |
+|---|---|---|
+| 1 | Zerodha | [`adapters/ZERODHA-ADAPTER.md`](adapters/ZERODHA-ADAPTER.md) |
+| 2 | Groww | [`adapters/GROWW-ADAPTER.md`](adapters/GROWW-ADAPTER.md) |
+| 3 | Upstox | [`adapters/UPSTOX-ADAPTER.md`](adapters/UPSTOX-ADAPTER.md) |
+| 4 | Dhan | [`adapters/DHAN-ADAPTER.md`](adapters/DHAN-ADAPTER.md) |
+| 5 | Shoonya | [`adapters/SHOONYA-ADAPTER.md`](adapters/SHOONYA-ADAPTER.md) |
+
+A side-by-side comparison of what each broker does and does not provide is in
+[`BROKER-CAPABILITY-MATRIX.md`](BROKER-CAPABILITY-MATRIX.md) §6.

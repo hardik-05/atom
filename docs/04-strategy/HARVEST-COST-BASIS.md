@@ -94,62 +94,172 @@ original capital**, reported as a profit. That is the bug this rule exists to pr
 
 ---
 
-## 4. Averaging — the new rule
+## 4. Averaging a proxy — tranches, not a blend
 
 > "What if a proxy is averaged at that time? It would be the average price of the security for
 > which the harvest took place — so 100 at the average price, and not 90 at the average price."
+>
+> "Post override, the synthetic price should be considered for your sell order for the amount
+> which was bought as part of synthetic, and there should be a **separate order** for the one
+> which was bought as per average… This case only occurs when you average a proxy, not in the
+> others. In other cases you will combine the average buy price and then put in a sell order."
 
-Two situations, one formula.
+### 4.1 ⚠️ This supersedes the first version of D-189
 
-### 4.1 The proxy is already held when the harvest happens
+The first draft of this document said the two bases blend into a single weighted
+`strategy_average` and one sell order is placed against it. **That is wrong for a proxy that has
+been averaged**, and the operator's rule is better: blending would silently destroy the
+carry-over it exists to protect.
 
-The harvest creates a **new lot** with its own synthetic basis. Pre-existing lots keep theirs
-(synthetic = actual, no carry-over). The instrument's **strategy average** is the
-quantity-weighted blend.
+Worked through with the operator's own numbers:
 
-| Lot | Qty | Actual | Synthetic |
+| | Qty | Actual | Synthetic |
 |---|---|---|---|
-| Pre-existing B | 10 | ₹48 | ₹48 *(= actual)* |
-| Harvest proxy B | 20 | ₹45 | **₹50** |
+| Proxy lot (A @ ₹100 harvested at ₹90) | 1 | ₹90 | **₹100** |
+| Averaged lot (bought later at ₹85) | 1 | ₹85 | ₹85 |
 
-```
-actual average    = (10×48 + 20×45) / 30  =  ₹46.00   → tax, real P&L, cost of capital
-strategy average  = (10×48 + 20×50) / 30  =  ₹49.33   → deviation, sell trigger, GTT
-```
+**Blended** (the wrong answer): strategy average = (100 + 85) / 2 = **₹92.50**. One sell order at
+3.5% → ₹95.74 for both units. The proxy unit exits at ₹95.74 against ₹100 of committed
+capital — **a ₹4.26 loss booked as a 3.5% gain.** Averaging would have re-introduced the exact
+phantom-profit bug the synthetic basis exists to prevent, one step removed.
 
-Sell trigger at 3.5% = ₹49.33 × 1.035 = **₹51.06**, not ₹47.61.
+**Tranched** (the rule): two sell orders.
 
-### 4.2 The proxy is averaged down later with fresh capital
+| Tranche | Qty | Basis | Target @ 3.5% |
+|---|---|---|---|
+| **Synthetic** | 1 | ₹100 | **₹103.50** |
+| **Actual** | 1 | ₹85 | **₹87.98** |
 
-A new lot, no carry-over, synthetic = actual. It blends by the same formula, so the carry-over
-is **diluted proportionally** — which is correct: the new money genuinely entered at the market
-price and has no original capital to recover.
+Each tranche recovers the capital actually committed to it. Nothing is cross-subsidised.
 
-### 4.3 The formula, once
+### 4.2 The rule
+
+> **Lots carrying a synthetic basis form their own sell tranche. Lots without one blend
+> normally. At most two sell orders per (account, universe, instrument).**
 
 ```sql
-strategy_average = SUM(quantity_open * COALESCE(synthetic_cost_basis, unit_cost))
-                 / SUM(quantity_open)
+-- Tranche S — synthetic lots
+qty_s    = SUM(quantity_open) WHERE synthetic_cost_basis IS NOT NULL
+target_s = SUM(quantity_open * synthetic_cost_basis) / qty_s  ×  (1 + threshold)
 
-actual_average   = SUM(quantity_open * unit_cost)
-                 / SUM(quantity_open)
+-- Tranche A — everything else
+qty_a    = SUM(quantity_open) WHERE synthetic_cost_basis IS NULL
+target_a = SUM(quantity_open * unit_cost) / qty_a             ×  (1 + threshold)
 ```
 
-`COALESCE(synthetic_cost_basis, unit_cost)` is the entire mechanism. The existing schema column
-(`position_lot.synthetic_cost_basis`, nullable, D-019) already supports it — **no migration is
-needed** for the core rule. Because it is per-lot and per-unit, partial sells, partial harvests
-and repeated averaging all fall out correctly without special cases.
+Two GTTs go out, not one. D-156 already requires multiple GTTs per instrument and D-164 confirmed
+every broker supports it, so no new capability is needed — but the **sell pass must now emit a
+list of tranches per instrument rather than a single order**, which is a change to its shape.
 
----
+**Where the ordinary case still blends.** An instrument with no synthetic lots has exactly one
+tranche, computed on `unit_cost` — identical to today's behaviour. The operator's "in other cases
+you will combine the average buy price and then put in a sell order" is simply tranche A with
+tranche S empty. Nothing about the normal path changes.
+
+### 4.3 Multiple synthetic lots blend *with each other*
+
+Chaining is banned (§4.4), but two different securities may be harvested into the **same** proxy
+instrument at different times — A → B in March, C → B in July. B then holds two synthetic lots
+with different bases.
+
+**These blend into one synthetic tranche**, weighted by `synthetic_cost_basis`. The alternative —
+one sell order per harvest — would grow the order count without bound and make the GTT book
+unreadable. Blending *within* tranche S is safe because every lot in it is recovering committed
+capital on the same principle; blending *across* S and A is what breaks (§4.1).
+
+So the ceiling stays at **two sell orders per instrument, always**.
+
+### 4.4 🔴 Chained harvests are not allowed
+
+> "Chained harvest is not allowed in this system because that will complicate it to a very deep
+> extent. So if you buy a proxy for one of the instruments, you should not be able to sell that
+> proxy and put in a third proxy. That dilutes the whole process."
+
+**A lot carrying a synthetic basis can never itself be harvested.** This closes Q-282 by removing
+the question rather than answering it: `chain_depth` is always 1.
+
+The column stays in `harvest_chain` as a **guard, not a variable** —
+`CHECK (chain_depth = 1)` — so a violation is impossible at the database level rather than merely
+discouraged in code. That is worth more than the flexibility it gives up: the alternative was an
+ever-widening gap between synthetic basis and cash, with positions drifting toward unsellable.
+
+Enforcement: the harvest candidate list **excludes any lot with a non-null
+`synthetic_cost_basis`**, and the reason is shown rather than the lot silently omitted — *"already
+a harvest proxy; cannot be re-harvested"*.
+
+### 4.5 Averaging a proxy is blocked by default, with an override
+
+> "Those securities in the averaging page, if they come, they should [say] **not harvesting
+> because proxy applied**… but if at all the user still wants to buy them, there should be an
+> override where they click on average, an override screen comes up, they override and then do."
+
+Because the buy side uses the synthetic basis (§5.1), a proxy bought at ₹90 with a ₹100 synthetic
+basis shows a **−10% deviation** and therefore appears as a buy candidate immediately. Left alone,
+ATOM would average into the proxy it just bought, concentrating the position — which is the
+concentration risk the operator wants avoided.
+
+So the proxy **appears on the averaging screen, flagged and blocked**:
+
+```
+GOLDBEES   LTP 90.00   synthetic 100.00   actual 90.00   dev −10.00%
+           ⚠ PROXY APPLIED — averaging blocked.  [ Override ]
+```
+
+Clicking **Override** opens a confirmation screen stating what will happen — a second sell
+tranche will be created — and requires explicit confirmation, logged to `action_audit` with the
+operator and the reason. This follows the standing three-stage posture (block → review →
+release): the block is the default, the override is deliberate and audited, and it is never
+implicit.
+
+**The concentration control is the override gate, not the price choice.** Using the synthetic
+basis makes the proxy *more* visible as a candidate, not less; what prevents the concentration is
+that ATOM refuses to act on it without a human saying so.
+
+### 4.6 The averaging screen shows both prices
+
+> "Out of a big universe not everything would be having a synthetic price. So we would like to
+> see a synthetic price and an original price in the average screen, so that it helps the user
+> take the decision more easily."
+
+Two columns, always present, on every row:
+
+| Column | Value | For a normal holding |
+|---|---|---|
+| **Actual avg** | `SUM(qty × unit_cost) / SUM(qty)` | the only number that exists |
+| **Synthetic avg** | `SUM(qty × COALESCE(synthetic, unit_cost)) / SUM(qty)` | **identical to actual** |
+| **Deviation** | computed against **synthetic** | identical either way |
+
+For most of the universe the two columns match, and that sameness is the point: it tells the
+operator at a glance which rows carry a harvest history and which do not. A row where they differ
+is a proxy, and it will also carry the blocked flag from §4.5.
+
+> **Open — Q-294.** The deviation shown and used for the averaging *decision* is computed on the
+> **synthetic** average; the actual average is displayed for context only. That is my reading of
+> "use the synthetic price," and it is what produces the −10% that triggers the block. Confirming
+> it explicitly because the alternative (decide on actual, display synthetic) would mean the proxy
+> never appears as a candidate at all and the block never fires.
 
 ## 5. Everything downstream, and what it reads
+
+### 5.1 ✅ The buy side uses the synthetic basis (Q-286 answered)
+
+The operator's answer is **yes**. The deviation that drives averaging is computed against the
+synthetic average, not the market entry price.
+
+The reasoning is worth recording because the mechanism is counter-intuitive: using the synthetic
+basis makes a proxy look **more** attractive to average into, not less (₹90 against a ₹100 basis
+is −10%, where ₹90 against a ₹90 basis is 0%). Concentration is then prevented not by hiding the
+candidate but by **blocking it and demanding an override** (§4.5). The proxy is surfaced
+*because* it is cheap relative to committed capital, and refused *because* it is already a proxy.
+Both facts are true and the operator sees both.
+
 
 | Component | Reads | Why |
 |---|---|---|
 | **Deviation metric** (`DEVIATION-METRIC-ANALYSIS.md`) | strategy average | The deviation is *from what we committed*, not from what we paid after a tax manoeuvre |
-| **Sell logic** (`SELL-LOGIC.md`) | strategy average | Target = strategy avg × (1 + threshold%) |
-| **GTT trigger price** | strategy average | It is the sell logic, expressed as a resting order |
-| **Averaging / buy logic** | strategy average | See §7 Q-286 — this one is a genuine open question |
+| **Sell logic** (`SELL-LOGIC.md`) | **per tranche** (§4.2) | Synthetic lots and actual lots get **separate targets and separate orders** |
+| **GTT trigger price** | **per tranche** | Two GTTs where a synthetic tranche exists, one otherwise |
+| **Averaging / buy logic** | synthetic average | ✅ **Q-286 answered** — see §5.1 |
 | **Tax engine** (`TAX-ENGINE.md`) | **actual** | The loss was booked once already |
 | **Cost of capital** (`COST-OF-CAPITAL.md`) | **actual** | Interest accrues on real money — ₹900 is deployed, not ₹1,000 |
 | **Real P&L / charges** | **actual** | What the investor's cash actually did |
@@ -174,7 +284,7 @@ basis named beside each figure — never a bare "P&L".
 
 ## 6. Rules the model implies
 
-1. **Per-unit, so partials are free.** Selling half the proxy leaves the remainder's synthetic
+1. **Per-unit, so partials are free.** Selling half a tranche leaves the remainder's synthetic
    basis untouched. Harvesting only part of a source lot carries a proportional amount.
 2. **The proxy must sit in the same universe as the harvested lot.** Lots belong to a universe
    (D-156), and carrying capital across universes would distort exactly the per-universe
@@ -206,8 +316,13 @@ ALTER TABLE atom.harvest_chain
     ALTER COLUMN proxy_tier  DROP NOT NULL,
     ADD COLUMN carried_basis_amount numeric(18,4),  -- what was carried forward
     ADD COLUMN chain_depth          integer NOT NULL DEFAULT 1,
-    ADD COLUMN selected_by          text;           -- operator, for the manual pairing (D-163)
+    ADD COLUMN selected_by          text,           -- operator, for the manual pairing (D-163)
+    ADD CONSTRAINT harvest_no_chaining_ck CHECK (chain_depth = 1);   -- D-193
 ```
+
+The `CHECK (chain_depth = 1)` is the enforcement of the no-chaining rule (§4.4). A proxy lot can
+never itself be harvested, so the database refuses to record a second hop rather than trusting
+application code to remember.
 
 `carried_basis_amount` is deliberately stored rather than recomputed: it is the number that
 explains a synthetic basis, and recomputing it years later would depend on data that may have
@@ -219,20 +334,11 @@ been corrected in the meantime.
 
 Raised under D-054c, because a new rule touches every connected component.
 
-### Q-282 🔴 — Chained harvests: does the synthetic basis carry again?
+### ✅ Q-282 — Chained harvests: **closed, not allowed** (D-193)
 
-B (synthetic ₹1,000, actual ₹900) falls further and is itself harvested into C.
-
-| Option | C's carried amount | Effect |
-|---|---|---|
-| **A — carry the synthetic** | ₹1,000 | Target never decays; the original capital is always the benchmark |
-| **B — carry the actual** | ₹810 (say) | Target resets at each harvest, reintroducing the phantom-profit bug one step removed |
-
-**Recommendation: A.** The principle is "recover the capital originally committed", and B
-quietly abandons it after the first hop. But A has a cost worth naming: after repeated harvests
-the synthetic basis drifts ever further above cash and the position can become effectively
-unsellable. Proposed mitigation — **store `chain_depth`, surface it in the UI, and warn above a
-configurable depth (default 3)** rather than capping it silently.
+The question is removed rather than answered: a lot carrying a synthetic basis can never itself
+be harvested. `chain_depth` is always 1 and the database enforces it (§6.1). The harvest
+candidate list excludes proxy lots with a visible reason.
 
 ### Q-283 — Leftover cash when proceeds don't divide evenly
 
@@ -267,19 +373,26 @@ capital accrues (already flagged in `COST-OF-CAPITAL.md`).
 `action_audit`. This matches the standing posture on the block/review/release flow: *never
 auto-un-release*. The 12-month holding warning already surfaces these positions for review.
 
-### Q-286 🔴 — Does the **buy** side use the synthetic basis too?
+### ✅ Q-286 — The buy side uses the synthetic basis (D-194)
 
-B trades at ₹45 against a synthetic average of ₹50 — a −10% deviation, which is a **buy
-signal**. ATOM would average down into the proxy it just bought.
+Answered yes. Concentration is controlled by the **override gate** (§4.5), not by the choice of
+price — the proxy is surfaced because it is cheap against committed capital, and blocked because
+it is already a proxy.
 
-| Option | |
-|---|---|
-| **A — yes, synthetic everywhere** | Consistent; one number drives both sides. But ATOM doubles down on a position it is already carrying at a premium, concentrating risk in the proxy |
-| **B — synthetic for sell, actual for buy** | The buy decision uses the real market entry (₹45), so no artificial buy signal. But the position now has two different "averages" depending on direction, which is hard to explain on a screen |
+### Q-294 — Which number drives the averaging *decision*?
 
-**No recommendation — this is genuinely yours to call.** My weak lean is **A** for consistency
-and explainability, with the per-instrument daily cap (one lot per instrument per day) already
-limiting how fast concentration can build. But B is defensible and I do not want to assume it.
+My reading: the **synthetic** average drives the deviation and therefore the candidate list; the
+actual average is shown alongside for context. Confirming because the alternative (decide on
+actual, display synthetic) would mean the proxy never becomes a candidate and the §4.5 block
+never fires.
+
+### Q-295 — Does the override persist, or is it per-run?
+
+Once the operator overrides and averages a proxy, does that instrument stay unblocked for future
+runs, or does each additional average need a fresh override? **Recommendation: per-run.** An
+override is consent to one specific action at one specific price, and a standing exemption would
+quietly rebuild the concentration risk the block exists to prevent — consistent with the standing
+"never auto-un-release" posture.
 
 ### Q-287 — Must the proxy be in the same universe?
 

@@ -222,6 +222,37 @@ developer documentation has been read end to end:
 |---|---|---|
 | 1 | **Zerodha** | ✅ [`adapters/ZERODHA-ADAPTER.md`](adapters/ZERODHA-ADAPTER.md) |
 | 2 | **Groww** | ✅ [`adapters/GROWW-ADAPTER.md`](adapters/GROWW-ADAPTER.md) |
-| 3 | Upstox | ⏳ next |
-| 4 | Dhan | ⏳ |
-| 5 | Shoonya | ⏳ last (GTT surface unpublished, Q-271) |
+| 3 | **Upstox** | ✅ [`adapters/UPSTOX-ADAPTER.md`](adapters/UPSTOX-ADAPTER.md) |
+| 4 | **Dhan** | ✅ [`adapters/DHAN-ADAPTER.md`](adapters/DHAN-ADAPTER.md) |
+| 5 | **Shoonya** | 🟠 [`adapters/SHOONYA-ADAPTER.md`](adapters/SHOONYA-ADAPTER.md) — complete for what is published; **GTT still unpublished (Q-271)** |
+
+### Where the five landed
+
+| | Zerodha | Groww | Upstox | Dhan | Shoonya |
+|---|---|---|---|---|---|
+| ISIN in instrument master | ❌ seed from ATOM's data | ✅ | ✅ **is the token** | ✅ (detailed CSV only) | ❓ Q-306 |
+| Master needs a token | ✅ | ❌ public | ❌ public | ❌ public | ❓ |
+| `free_quantity` | derive from 4 | ✅ direct | derive from 3 | ✅ direct | derive from **7** |
+| GTT | ✅ | ✅ | ✅ | ✅ | 🔴 **unpublished** |
+| GTT carries ATOM's ref | ❌ | ✅ | ❌ | ✅ | — |
+| Idempotency / ref lookup | ❌ | ✅ idempotent | ❌ | ✅ lookup | ❌ **none** |
+| Charges: per-order | ✅ | ✅ | ❌ period | ✅ | ❌ |
+| Charges: components | ✅ | ❌ | ✅ **incl. DP** | ✅ | ❌ |
+| Ledger | ❌ | ❌ | ❌ | ✅ **only one** | ❌ |
+| Pre-flight tradability | ❌ | ✅ flags | ✅ suspended file | ✅ **+ ASM/GSM** | ❌ |
+| Sell authorisation | 🔴 **per session** | none | 🔴 EDIS one-time | none (DDPI) | POA-dependent |
+| Static IP scope | ❓ | ❓ | all calls | **orders only** 🔴 | all calls 🟢 |
+| HTTP status reliable | ✅ | ✅ | ✅ | ✅ | 🔴 **200 on rejection** |
+
+**Upstox and Groww have exactly opposite charge gaps** — Groww gives per-order totals with no
+components; Upstox gives components (including DP, uniquely) with no per-order attribution.
+Neither alone supports a per-fill contrast. Dhan and Zerodha both do.
+
+**Dhan is the strongest adapter** — the only broker with itemised per-trade charges, a real ledger
+with a running balance, a fully headless TOTP token, and lookup by ATOM's own reference. It is
+also the only one that locks its IP for 7 days and the only one where whitelisting gates writes
+but not reads, making it simultaneously the best-equipped and the least forgiving.
+
+**Shoonya is the weakest, and last for good reason** — no GTT documentation, no idempotency field,
+no charges, no ledger, unpublished token lifetime, prose-only errors, and two places where its own
+documentation contradicts itself.

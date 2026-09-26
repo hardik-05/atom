@@ -2610,3 +2610,207 @@ Raised under D-054c: a new rule touches every connected component.
 | Q-291 | Does Groww require any depository/EDIS-style sell authorisation? Not mentioned anywhere — absence is not confirmation |
 | Q-292 | `EXECUTED` vs `COMPLETED` — what distinguishes them? (Both → `FILLED`; documentation clarity only) |
 | Q-293 | Which error code carries an insufficient-funds rejection on Groww, and is the reason machine-readable in `error.metadata`? |
+
+---
+
+## Round 30 — 2026-09-26 · Harvest tranches; all five adapters mapped
+
+### Harvest — the operator's answers, and a correction to my own
+
+**D-193 — Chained harvests are not allowed.** (Q-282 closed by removal.)
+
+> "Chained harvest is not allowed in this system because that will complicate it to a very deep
+> extent. If you buy a proxy for one of the instruments, you should not be able to sell that proxy
+> and put in a third proxy. That dilutes the whole process."
+
+**A lot carrying a synthetic basis can never itself be harvested.** `chain_depth` is always 1,
+and the database enforces it — `CHECK (chain_depth = 1)` — so a violation is impossible rather
+than merely discouraged. The harvest candidate list excludes proxy lots **with the reason shown**,
+not silently omitted.
+
+This is better than either option I offered. I was weighing how far to let the synthetic basis
+drift above cash across hops; removing the hops removes the drift.
+
+**D-194 — The buy side uses the synthetic basis.** (Q-286 answered: yes.)
+
+The deviation driving averaging is computed against the synthetic average. The mechanism is
+counter-intuitive and worth stating precisely: using the synthetic basis makes a proxy look
+**more** attractive to average into, not less (₹90 against a ₹100 basis is −10%; against a ₹90
+basis it is 0%). Concentration is prevented not by hiding the candidate but by **blocking it**.
+
+**D-195 — 🔴 Averaging a proxy splits the position into two sell tranches.** (This supersedes the
+first version of D-189 for the proxy case.)
+
+> "Post override, the synthetic price should be considered for your sell order for the amount
+> which was bought as part of synthetic, and there should be a **separate order** for the one
+> which was bought as per average… This case only occurs when you average a proxy, not in the
+> others. In other cases you will combine the average buy price and then put in a sell order."
+
+**D-189 as I first wrote it was wrong here.** I said the two bases blend into one weighted
+`strategy_average` with one sell order. Worked through with the operator's numbers:
+
+| | Qty | Actual | Synthetic |
+|---|---|---|---|
+| Proxy lot (A @ ₹100 harvested at ₹90) | 1 | ₹90 | **₹100** |
+| Averaged lot (bought later at ₹85) | 1 | ₹85 | ₹85 |
+
+**Blended:** strategy average ₹92.50 → one sell at ₹95.74. The proxy unit exits at ₹95.74 against
+₹100 committed — **a ₹4.26 loss booked as a 3.5% gain.** Blending re-introduces the exact
+phantom-profit bug the synthetic basis exists to prevent, one step removed.
+
+**Tranched:** two sell orders — synthetic tranche at ₹103.50, actual tranche at ₹87.98. Each
+recovers the capital committed to it; nothing is cross-subsidised.
+
+```sql
+-- Tranche S: synthetic_cost_basis IS NOT NULL   → target on weighted synthetic avg
+-- Tranche A: synthetic_cost_basis IS NULL       → target on weighted unit_cost avg
+```
+
+**The ceiling is two, always.** Multiple synthetic lots (two different securities harvested into
+the same proxy at different times) **blend with each other** inside tranche S — only the S/A
+boundary splits. Blending within S is safe because every lot there recovers committed capital on
+the same principle; blending across S and A is what breaks.
+
+The normal path is unchanged: an instrument with no synthetic lots is a one-element tranche list
+computed on `unit_cost`, which is exactly today's behaviour. `SELL-LOGIC.md` §2's "never two" is
+amended accordingly, and the cancel-all-first reconciliation must now expect **up to two** ATOM
+sell orders per instrument without treating the second as a duplicate.
+
+**D-196 — Averaging a proxy is blocked by default, with an audited override.**
+
+> "Those securities in the averaging page, if they come, they should [say] not harvesting because
+> proxy applied… but if the user still wants to buy them, there should be an override where they
+> click on average, an override screen comes up, they override and then do."
+
+```
+GOLDBEES   LTP 90.00   synthetic 100.00   actual 90.00   dev −10.00%
+           ⚠ PROXY APPLIED — averaging blocked.  [ Override ]
+```
+
+The override opens a confirmation screen stating that a second sell tranche will be created, and
+requires explicit confirmation logged to `action_audit` with operator and reason. Standard
+block → review → release posture.
+
+**The concentration control is the override gate, not the price choice** — which is what makes
+D-194 and this decision coherent rather than contradictory.
+
+**D-197 — The averaging screen shows synthetic and actual side by side.**
+
+> "Out of a big universe not everything would be having a synthetic price. So we would like to see
+> a synthetic price and an original price in the average screen, so that it helps the user take
+> the decision more easily."
+
+Two columns on every row, always present. For most of the universe they are **identical**, and
+that sameness is the signal: a row where they differ carries a harvest history, and will also
+carry the block flag from D-196.
+
+### The adapter engine — all five brokers now mapped
+
+`ADAPTER-ENGINE.md` plus five documents in `adapters/`. Two engine-level changes fell out of
+finishing the last three:
+
+**D-198 — The sell pass emits a list of tranches per instrument, not a single order.**
+A direct consequence of D-195. An instrument with no synthetic lots yields one element, so the
+normal path is unaffected. D-156 already required multiple GTTs per instrument and D-164 confirmed
+all five brokers support it, so no capability changes.
+
+**D-199 — `lookup_by_client_ref` is True on Dhan.**
+`GET /v2/orders/external/{correlation-id}` — "In case the user has missed order id due to
+unforeseen reason, this API retrieves the order status using a tag called correlation id specified
+by users themselves." Round 2 recorded this as unknown. Three of five brokers can now recover a
+timed-out placement without scanning the order book: Groww (idempotent), Dhan (lookup), and
+neither Zerodha, Upstox nor Shoonya.
+
+### Where the five actually landed
+
+| | Zerodha | Groww | Upstox | Dhan | Shoonya |
+|---|---|---|---|---|---|
+| ISIN in instrument master | ❌ seed from ATOM's data | ✅ | ✅ **is the token** | ✅ (detailed CSV only) | ❓ Q-306 |
+| Master needs a token | ✅ | ❌ public | ❌ public | ❌ public | ❓ |
+| `free_quantity` | derive from 4 | ✅ direct | derive from 3 | ✅ direct | derive from **7** |
+| GTT | ✅ | ✅ | ✅ | ✅ | 🔴 **unpublished** |
+| GTT carries ATOM's ref | ❌ | ✅ | ❌ | ✅ | — |
+| Order idempotency / lookup | ❌ | ✅ idempotent | ❌ | ✅ lookup | ❌ **none** |
+| Charges: per-order | ✅ | ✅ | ❌ period | ✅ | ❌ |
+| Charges: components | ✅ | ❌ | ✅ **incl. DP** | ✅ | ❌ |
+| Ledger | ❌ | ❌ | ❌ | ✅ **only one** | ❌ |
+| Pre-flight tradability | ❌ | ✅ flags | ✅ suspended file | ✅ **+ ASM/GSM** | ❌ |
+| Sell authorisation | 🔴 **per session** | none | 🔴 EDIS one-time | none (DDPI) | POA-dependent |
+| Static IP scope | ❓ | ❓ | all calls | **orders only** 🔴 | all calls 🟢 |
+
+**Upstox and Groww have exactly opposite charge gaps** — Groww gives per-order totals with no
+components, Upstox gives components with no per-order attribution. Neither alone supports a
+per-fill contrast; Dhan and Zerodha both do.
+
+**Dhan is the strongest adapter overall** — the only broker with itemised per-trade charges, a real
+ledger with a running balance, a fully headless TOTP token, and reference lookup. It is also the
+only one that locks its IP for 7 days and the only one where whitelisting gates writes but not
+reads, so it is simultaneously the best-equipped and the least forgiving.
+
+**Shoonya is the weakest and last for good reason** — no GTT documentation, no idempotency field of
+any kind, no charges, no ledger, unpublished token lifetime, prose-only errors, and **two places
+where its own documentation contradicts itself**.
+
+### Notable per-broker findings
+
+**D-200 — Upstox `tick_size` in the JSON master appears to be in paise.** The JSON gives
+`"tick_size": 5.0` for an NSE equity; the deprecated CSV gives `0.05` for the same field. Reading
+5.0 as rupees would round every limit price to ₹5 increments — mispricing a ₹70 ETF by up to 7%.
+The adapter divides by 100 and asserts at startup that a known ETF's derived tick is ≤ ₹0.05.
+**Q-300**, and the single most dangerous field in that adapter.
+
+**D-201 — Dhan's `ASM_GSM_FLAG` is a new strategy input.** The detailed instrument CSV publishes
+ASM/GSM surveillance status with a category — restricted trading, often 100% margin. No other
+broker publishes it. `EXCLUSION-AND-FREEZE.md` had no source for this; proposed as
+`instrument.status = 'REVIEW'` plus a new-buy freeze, existing holdings untouched, consistent with
+D-091. **Q-304** because it changes strategy behaviour, not just a mapping.
+
+**D-202 — Shoonya's place-order page contradicts its own compliance page on Algo ID, in ATOM's
+favour.** Place Order documents `algo_id` as "Mandatory for orders placed under a registered algo
+strategy… **omit for manual/non-algo orders**", while the SEBI Algo ID Framework page claims every
+API order needs one. The operator verified independently that none is required (D-181); **the
+vendor's own order documentation agrees with the operator.** ATOM omits the field entirely, and
+this is the documentary support for that.
+
+**D-203 — Shoonya returns HTTP 200 on rejection.** "Never treat a 200 as confirmation of order
+placement." Every response checks `stat == "Ok"` first. An adapter branching on HTTP status would
+record rejected orders as placed, and the attribution reconciliation would surface it a day later
+as a negative residual and a blocked run — a confusing, day-late failure from a one-line mistake.
+
+**D-204 — Dhan's `DELETE /v2/positions` exits every position and cancels every order. It is not
+implemented.** Not in the `BrokerAdapter` protocol, so there is no code path to it. The safest way
+to handle a destructive endpoint is to have none.
+
+---
+
+### Questions closed
+
+| ID | Resolution |
+|---|---|
+| **Q-282** | ✅ Removed — chained harvests not allowed, DB-enforced (D-193) |
+| **Q-286** | ✅ Yes — buy side uses synthetic; concentration handled by the override gate (D-194, D-196) |
+| **Q-185** | 🟡 Answered for Dhan: cancellation returns **202 Accepted**, so re-polling is required. Still open for the other four |
+| **Q-178** | 🟡 Answered for Upstox: DP charges surface as `charges.demat_transaction` — the only broker naming them |
+| **Q-273** | 🟡 Complete picture now: Zerodha ✅ · Dhan ✅ · Upstox components-but-not-per-order · Groww per-order-but-no-components · Shoonya ❌ |
+
+### Questions raised
+
+| ID | Question | Blocks |
+|---|---|---|
+| Q-294 | Confirm the averaging **decision** runs on the synthetic average, with actual shown for context | Averaging screen |
+| Q-295 | Does an averaging override persist, or is it per-run? **Recommend per-run** — a standing exemption would quietly rebuild the concentration risk | Override semantics |
+| Q-296 | On a partially sold two-tranche position, which tranche's GTT is re-placed first? **Propose synthetic** (older capital) | Sell pass ordering |
+| **Q-300** 🔴 | Upstox JSON `tick_size` — paise or rupees? (D-200) | Order pricing |
+| **Q-304** | Should Dhan's `ASM_GSM_FLAG = 'Y'` freeze new buys via `status = 'REVIEW'`? (D-201) | Exclusion model |
+| **Q-305** 🔴 | Which Dhan error code indicates a non-whitelisted IP? No documented `UDAPI1154` equivalent, so the fault is invisible to the probe *and* hard to identify from the rejection | IP fault diagnosis |
+| **Q-310** 🔴 | Shoonya: token in header, body, or both? `text/plain` or form-urlencoded? Two of its pages disagree | Every Shoonya call |
+| Q-297 | Does the Upstox GTT payload accept a tag? | GTT identification |
+| Q-298 | Upstox GTT status enum — not published | Status mapping |
+| Q-299 | Upstox insufficient-funds error code | Funds handling |
+| Q-301 | Dhan Forever Order maximum validity | GTT staleness |
+| Q-302 | Does Dhan reject a duplicate `correlationId`? | Retry safety |
+| Q-303 | With Dhan `ddpi: "Active"`, is per-trade sell authorisation still needed? | Sell pass |
+| Q-306 | Does Shoonya's Symbol Master carry ISIN? Holdings do not | Instrument resolution |
+| Q-307 | Any Shoonya per-instrument tradability flag? None found | Pre-flight checks |
+| Q-308 | Shoonya `OrderBook` status strings — prose only, never tabulated | Status mapping |
+| Q-309 | Shoonya error codes, or is `emsg` prose the only surface? | Error robustness |

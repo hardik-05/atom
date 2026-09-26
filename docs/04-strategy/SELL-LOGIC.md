@@ -88,9 +88,33 @@ sold by other means. This is documented per broker in the capability matrix. ATO
 **places** and **cancels** GTTs — never modifies them — which keeps the required surface
 minimal even where broker behaviour differs.
 
-## 2. One sell order per security (D-055)
+## 2. One sell order per security — **amended: one per tranche** (D-055, amended by D-195)
 
-Never two. At the start of each run, reconcile against the broker's order book:
+> ⚠️ **D-055's "never two" now has exactly one exception.** Where a harvest proxy has been
+> averaged, the position splits into **two tranches** with two separate targets and two separate
+> GTTs. Everything else in this section is unchanged, and for the overwhelming majority of
+> instruments there is still exactly one sell order.
+>
+> | Tranche | Lots | Target |
+> |---|---|---|
+> | **S — synthetic** | `synthetic_cost_basis IS NOT NULL` | weighted synthetic avg × (1 + threshold) |
+> | **A — actual** | `synthetic_cost_basis IS NULL` | weighted `unit_cost` avg × (1 + threshold) |
+>
+> **The ceiling is two, always.** Multiple synthetic lots blend with each other inside tranche S;
+> only the S/A boundary splits. Blending across it would exit a proxy unit below the capital it
+> is recovering and book the shortfall as a gain — see
+> [`HARVEST-COST-BASIS.md`](HARVEST-COST-BASIS.md) §4.1 for the worked failure.
+>
+> **Consequence for the sell pass:** it emits a *list of tranches* per instrument, not a single
+> order. An instrument with no synthetic lots yields a one-element list, which is today's
+> behaviour exactly. D-156 already requires multiple GTTs per instrument and D-164 confirmed all
+> five brokers support it, so no new broker capability is needed.
+>
+> **Consequence for the cancel-all-first step:** the reconciliation below must expect **up to two**
+> ATOM sell orders per instrument. A second recorded GTT on one instrument is normal, not a
+> duplicate to halt on.
+
+Never two — except per the amendment above. At the start of each run, reconcile against the broker's order book:
 
 Because step 1 cancels every ATOM sell order before anything else, each run starts from a
 clean book by construction. The remaining cases are:
@@ -172,4 +196,5 @@ category suppresses **buying only**.
 | Q-184 | Confirm: cancel only ATOM-recorded GTT IDs, and report rather than cancel unrecognised resting sells |
 | Q-185 | Per broker: does cancelling a GTT return a synchronous confirmation, or must the order book be re-polled to verify? Affects step 2 |
 | Q-178 | Per broker: where and when DP charges surface (P&L vs ledger, same-day vs T+n) — round 2 research |
-| Q-179 | Tick size per ETF — is ₹0.01 universal on NSE ETFs, or does it vary by price band? |
+| Q-179 | Tick size per ETF — is ₹0.01 universal on NSE ETFs, or does it vary by price band? (see also Q-300 — Upstox reports tick size in paise in JSON but rupees in its deprecated CSV) |
+| Q-296 | When a two-tranche position is partially sold, which tranche's GTT is re-placed first on the next run? Proposed: synthetic first, since it is the older capital |
