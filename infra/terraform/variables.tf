@@ -15,9 +15,19 @@ variable "env" {
 }
 
 variable "instance_type" {
-  description = "t3a is ~10% cheaper than t3 for identical specs; `small` for the 2 GiB, not the CPU."
+  description = <<-EOT
+    `small` is for the 2 GiB, not the CPU -- the engine, squid and a Python
+    runtime do not fit comfortably in 1 GiB.
+
+    t3 rather than the marginally cheaper t3a because this account is on AWS's
+    Free Tier plan, which rejects RunInstances for any type not on the
+    free-tier-eligible list. t3a.small is not on it; t3.small is, with identical
+    2 GiB / 2 vCPU. The premium over t3a is about $0.002/hour and only applies
+    once the 750 free hours are gone -- which, at roughly an hour a day, is
+    never within the first year.
+  EOT
   type        = string
-  default     = "t3a.small"
+  default     = "t3.small"
 }
 
 variable "investor_count" {
@@ -31,7 +41,7 @@ variable "investor_count" {
   default     = 1
   validation {
     condition     = var.investor_count >= 1 && var.investor_count <= 3
-    error_message = "1-3 investors; a t3a.small has room for more but re-check the ENI IPv4 limit first."
+    error_message = "1-3 investors; a t3.small has room for more but re-check the ENI IPv4 limit first."
   }
 }
 

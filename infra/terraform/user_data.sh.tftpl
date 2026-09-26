@@ -52,13 +52,20 @@ cat > "$SQUID_CONF" <<'CONF'
 # Managed by ATOM user_data. Hand edits are lost on instance replacement.
 acl localnet src 127.0.0.1/32
 acl SSL_ports port 443
-acl Safe_ports port 80 443
+acl Safe_ports port 443
 acl CONNECT method CONNECT
 
-# Only CONNECT to 443, only from this host. The engine's traffic is entirely
-# HTTPS to broker APIs; anything else through here is a misconfiguration or an
-# intrusion, and both are better refused than proxied.
+# 443 only, CONNECT only, from this host only.
+#
+# Port 80 is deliberately NOT in Safe_ports. Every broker API ATOM speaks to is
+# HTTPS, so nothing legitimate leaves here in plaintext -- and a proxy that will
+# forward cleartext HTTP is a ready-made exfiltration channel for anything that
+# gets onto this host, one that leaves the instance from the very address the
+# brokers trust.
+#
+# Verified after deployment: a plaintext request through this proxy returns 403.
 http_access deny !Safe_ports
+http_access deny !CONNECT
 http_access deny CONNECT !SSL_ports
 http_access allow localnet
 http_access deny all
@@ -95,7 +102,10 @@ install -d -m 0750 -o squid -g squid /var/log/squid
 # Fail fast and loudly: a syntax error here means every broker call leaves from
 # the wrong address, which Dhan punishes with a seven-day IP lock.
 squid -k parse
-systemctl enable squid
+# --now, because `enable` only arms the unit for the NEXT boot. Without it squid
+# is installed, configured, validated and not running, and the first broker call
+# of the day fails to connect to a proxy that is merely scheduled to exist.
+systemctl enable --now squid
 
 # ------------------------------------------------------------ idle shutdown
 cat > /usr/local/bin/atom-idle-check <<'IDLE'
