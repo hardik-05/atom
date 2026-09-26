@@ -1,0 +1,93 @@
+#!/bin/bash
+# ATOM engine host bootstrap.
+#
+# Deliberately minimal: it installs the runtime and the proxy, and leaves the
+# application to a git checkout managed by the deployment procedure. Baking the
+# application into user_data would make every code change an instance
+# replacement, and instance replacement touches Elastic IPs.
+set -euo pipefail
+
+exec > >(tee /var/log/atom-bootstrap.log) 2>&1
+echo "ATOM bootstrap starting at $(date -Is)"
+
+dnf -y update
+dnf -y install python3.11 python3.11-pip git nginx nginx-mod-stream awscli
+
+install -d -m 0755 -o root -g root /opt/atom /etc/atom
+install -d -m 0755 /var/log/atom
+
+cat > /etc/atom/config.toml <<'CONF'
+# Non-secret configuration only. This file would be safe to publish:
+# broker tokens live in SSM and the Supabase key is fetched at startup.
+env = "${env}"
+region = "${region}"
+log_dir = "/var/log/atom"
+idle_shutdown_minutes = ${idle_shutdown_minutes}
+investor_count = ${investor_count}
+CONF
+
+# ---------------------------------------------------------------- proxies
+# One forward-proxy listener per investor, each bound to that investor's own
+# source address. Both listen on 127.0.0.1 only: an open forward proxy reachable
+# from the internet is abused within hours.
+mkdir -p /etc/nginx/stream.d
+PROXY_CONF=/etc/nginx/conf.d/atom-proxy.conf
+: > "$PROXY_CONF"
+
+%{ for i in range(investor_count) ~}
+PRIVATE_IP_${i}=$(printf '10.0.1.%d' $((10 + ${i})))
+cat >> "$PROXY_CONF" <<CONF
+# investor ${i + 1}
+server {
+    listen 127.0.0.1:$((3128 + ${i}));
+    proxy_bind $PRIVATE_IP_${i};
+    proxy_pass \$atom_upstream_${i};
+}
+CONF
+%{ endfor ~}
+
+systemctl enable nginx
+
+# ------------------------------------------------------------ idle shutdown
+cat > /usr/local/bin/atom-idle-check <<'IDLE'
+#!/bin/bash
+# Stop the instance after a period with no console session and no running run.
+# The engine requests shutdown itself after a completed run; this is the backstop
+# for a crashed or abandoned session.
+set -euo pipefail
+THRESHOLD_MIN=${idle_shutdown_minutes}
+MARKER=/var/run/atom-last-activity
+[ -f "$MARKER" ] || date +%s > "$MARKER"
+LAST=$(cat "$MARKER")
+NOW=$(date +%s)
+IDLE_MIN=$(( (NOW - LAST) / 60 ))
+if [ "$IDLE_MIN" -ge "$THRESHOLD_MIN" ]; then
+  logger -t atom "idle ${IDLE_MIN}m >= ${THRESHOLD_MIN}m, requesting shutdown"
+  shutdown -h now
+fi
+IDLE
+chmod 0755 /usr/local/bin/atom-idle-check
+
+cat > /etc/systemd/system/atom-idle.service <<'UNIT'
+[Unit]
+Description=ATOM idle shutdown check
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/atom-idle-check
+UNIT
+
+cat > /etc/systemd/system/atom-idle.timer <<'UNIT'
+[Unit]
+Description=Run the ATOM idle check every 5 minutes
+[Timer]
+OnBootSec=10min
+OnUnitActiveSec=5min
+[Install]
+WantedBy=timers.target
+UNIT
+
+systemctl daemon-reload
+systemctl enable --now atom-idle.timer
+
+echo "ATOM bootstrap finished at $(date -Is)"
+echo "Next: deploy the application per docs/02-infrastructure/DEPLOYMENT.md"

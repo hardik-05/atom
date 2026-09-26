@@ -1,0 +1,24 @@
+# Copy to terraform.tfvars and fill in. terraform.tfvars is gitignored.
+
+region        = "ap-south-1"
+env           = "prod"
+instance_type = "t3a.small"
+
+# One investor for now. Each additional address bills 24x7 at ~$3.65/month
+# whether or not the instance runs.
+investor_count = 1
+
+# Narrow this to the operator's own addresses if they are static. The console is
+# behind a password and mandatory TOTP either way.
+allow_console_from = ["0.0.0.0/0"]
+
+idle_shutdown_minutes = 60
+
+# Numeric Telegram user IDs, not usernames. Get yours by messaging @userinfobot.
+# Terraform writes the parameter; set the real value afterwards with:
+#   aws ssm put-parameter --name /atom/telegram/allowed_user_ids --overwrite \
+#     --type SecureString --value "123456789"
+telegram_allowed_user_ids = []
+
+# Leave null. Port 22 is closed; access is via SSM Session Manager.
+ssh_key_name = null
