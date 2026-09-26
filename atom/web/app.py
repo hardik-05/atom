@@ -276,7 +276,9 @@ def create_app(engine: Engine, jobs: JobRunner) -> FastAPI:
         except SecretNotFoundError:
             # The operator needs to know the console is not set up; the SSM path
             # and which part is missing stay in the engine's own log.
-            message = "console sign-in is not configured yet — run: python -m atom.cli console-setup"
+            message = (
+                "console sign-in is not configured yet — run: python -m atom.cli console-setup"
+            )
             return _json({"error": message}, 503)
         if not ok:
             throttle.fail(client)
