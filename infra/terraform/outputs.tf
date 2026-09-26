@@ -15,7 +15,7 @@ output "investor_egress_ips" {
     `scripts/verify_egress_ip.py` passes. Registration is what engages Dhan's
     7-day lock.
   EOT
-  value = var.env == "prod" ? aws_eip.investor[*].public_ip : []
+  value       = var.env == "prod" ? aws_eip.investor[*].public_ip : []
 }
 
 output "investor_eip_allocation_ids" {

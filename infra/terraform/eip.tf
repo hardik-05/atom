@@ -19,9 +19,9 @@ resource "aws_eip" "investor" {
   domain = "vpc"
 
   tags = {
-    Name             = "atom-investor-${count.index + 1}"
-    "atom:purpose"   = "broker-egress"
-    "atom:investor"  = tostring(count.index + 1)
+    Name                  = "atom-investor-${count.index + 1}"
+    "atom:purpose"        = "broker-egress"
+    "atom:investor"       = tostring(count.index + 1)
     "atom:do-not-release" = "true"
   }
 

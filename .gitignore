@@ -22,3 +22,6 @@ frontend/dist/
 *.tfstate.*
 *.tfvars
 !*.tfvars.example
+
+# The provider lock file IS committed (infra/terraform/.terraform.lock.hcl): it
+# pins provider versions so a later apply cannot silently pick up a new one.

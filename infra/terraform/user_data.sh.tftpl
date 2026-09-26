@@ -11,7 +11,7 @@ exec > >(tee /var/log/atom-bootstrap.log) 2>&1
 echo "ATOM bootstrap starting at $(date -Is)"
 
 dnf -y update
-dnf -y install python3.11 python3.11-pip git nginx nginx-mod-stream awscli
+dnf -y install python3.11 python3.11-pip git squid awscli
 
 install -d -m 0755 -o root -g root /opt/atom /etc/atom
 install -d -m 0755 /var/log/atom
@@ -27,26 +27,75 @@ investor_count = ${investor_count}
 CONF
 
 # ---------------------------------------------------------------- proxies
-# One forward-proxy listener per investor, each bound to that investor's own
-# source address. Both listen on 127.0.0.1 only: an open forward proxy reachable
-# from the internet is abused within hours.
-mkdir -p /etc/nginx/stream.d
-PROXY_CONF=/etc/nginx/conf.d/atom-proxy.conf
-: > "$PROXY_CONF"
+# One forward-proxy port per investor, each bound to that investor's own source
+# address, so the broker sees the Elastic IP registered for that investor and no
+# other (D-005/D-173).
+#
+# WHY SQUID AND NOT NGINX. The design named nginx's stream module as the starting
+# approach and tinyproxy as the fallback "if HTTPS CONNECT handling through
+# stream proves awkward" (STATIC-IP-AND-PROXY.md 2.2). It is not awkward, it is
+# impossible: the stream module is a TCP proxy to a configured upstream and does
+# not implement the CONNECT verb, so it cannot learn where a client wants to go.
+# Every broker call is HTTPS, so every broker call is a CONNECT.
+#
+# Squid rather than the documented tinyproxy fallback for one reason: tinyproxy
+# binds a single outbound address per process, so N investors means N daemons, N
+# unit files and N ways to get the pairing wrong. Squid's tcp_outgoing_address
+# takes an ACL, so the port-to-source-address mapping is one table in one file --
+# which is the thing that must be right, and is therefore the thing that should
+# be readable in one place.
+#
+# Every port listens on 127.0.0.1 only. An open forward proxy reachable from the
+# internet is found and abused within hours.
+SQUID_CONF=/etc/squid/squid.conf
+cat > "$SQUID_CONF" <<'CONF'
+# Managed by ATOM user_data. Hand edits are lost on instance replacement.
+acl localnet src 127.0.0.1/32
+acl SSL_ports port 443
+acl Safe_ports port 80 443
+acl CONNECT method CONNECT
+
+# Only CONNECT to 443, only from this host. The engine's traffic is entirely
+# HTTPS to broker APIs; anything else through here is a misconfiguration or an
+# intrusion, and both are better refused than proxied.
+http_access deny !Safe_ports
+http_access deny CONNECT !SSL_ports
+http_access allow localnet
+http_access deny all
+
+# No caching. A cached broker response served to a later call would be a wrong
+# price or a stale order status presented as current.
+cache deny all
+cache_store_log none
+access_log stdio:/var/log/squid/access.log
+
+# Do not announce the proxy or the client to the broker.
+via off
+forwarded_for delete
+request_header_access X-Forwarded-For deny all
+
+dns_v4_first on
+shutdown_lifetime 5 seconds
+CONF
 
 %{ for i in range(investor_count) ~}
-PRIVATE_IP_${i}=$(printf '10.0.1.%d' $((10 + ${i})))
-cat >> "$PROXY_CONF" <<CONF
-# investor ${i + 1}
-server {
-    listen 127.0.0.1:$((3128 + ${i}));
-    proxy_bind $PRIVATE_IP_${i};
-    proxy_pass \$atom_upstream_${i};
-}
+cat >> "$SQUID_CONF" <<CONF
+# ---- investor ${i + 1}: port $((3128 + ${i})) egresses from 10.0.1.$((10 + ${i}))
+# myport matches the numeric local port. myportname would match an http_port
+# name= label, which none of these have -- it would compile and match nothing,
+# leaving tcp_outgoing_address inert and every investor egressing from the
+# primary address. Silently, and identically for all of them.
+http_port 127.0.0.1:$((3128 + ${i}))
+acl investor_${i} myport $((3128 + ${i}))
+tcp_outgoing_address 10.0.1.$((10 + ${i})) investor_${i}
 CONF
 %{ endfor ~}
 
-systemctl enable nginx
+install -d -m 0750 -o squid -g squid /var/log/squid
+# Fail fast and loudly: a syntax error here means every broker call leaves from
+# the wrong address, which Dhan punishes with a seven-day IP lock.
+squid -k parse
+systemctl enable squid
 
 # ------------------------------------------------------------ idle shutdown
 cat > /usr/local/bin/atom-idle-check <<'IDLE'
@@ -62,7 +111,12 @@ LAST=$(cat "$MARKER")
 NOW=$(date +%s)
 IDLE_MIN=$(( (NOW - LAST) / 60 ))
 if [ "$IDLE_MIN" -ge "$THRESHOLD_MIN" ]; then
-  logger -t atom "idle ${IDLE_MIN}m >= ${THRESHOLD_MIN}m, requesting shutdown"
+  # The doubled dollar escapes the interpolation. templatefile expands EVERY
+  # dollar-brace in this file, comments included, regardless of shell quoting --
+  # so a shell variable written with braces is read as a Terraform variable and
+  # fails the whole template. A single-quoted heredoc protects these from the
+  # shell, not from Terraform.
+  logger -t atom "idle $${IDLE_MIN}m >= $${THRESHOLD_MIN}m, requesting shutdown"
   shutdown -h now
 fi
 IDLE

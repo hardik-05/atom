@@ -10,6 +10,60 @@ resource "aws_kms_alias" "atom" {
   target_key_id = aws_kms_key.atom.key_id
 }
 
+# ---------------------------------------------------------------------------
+# Key policy.
+#
+# A customer-managed key starts with an implicit policy granting only the account
+# root, and CloudWatch Logs encrypts with the key ITSELF rather than through the
+# caller's credentials. Without the second statement below, creating an encrypted
+# log group fails with "The specified KMS key does not exist or is not allowed" —
+# an error that points at the key and is actually about the key's policy.
+#
+# The EncryptionContext condition is what keeps this narrow: the grant applies
+# only to log groups in this account, not to any log group anywhere that happens
+# to name this key.
+# ---------------------------------------------------------------------------
+
+data "aws_iam_policy_document" "kms" {
+  statement {
+    sid       = "AccountRootOwnsTheKey"
+    effect    = "Allow"
+    actions   = ["kms:*"]
+    resources = ["*"]
+    principals {
+      type        = "AWS"
+      identifiers = ["arn:aws:iam::${data.aws_caller_identity.current.account_id}:root"]
+    }
+  }
+
+  statement {
+    sid    = "CloudWatchLogsMayEncrypt"
+    effect = "Allow"
+    actions = [
+      "kms:Encrypt*",
+      "kms:Decrypt*",
+      "kms:ReEncrypt*",
+      "kms:GenerateDataKey*",
+      "kms:Describe*",
+    ]
+    resources = ["*"]
+    principals {
+      type        = "Service"
+      identifiers = ["logs.${var.region}.amazonaws.com"]
+    }
+    condition {
+      test     = "ArnLike"
+      variable = "kms:EncryptionContext:aws:logs:arn"
+      values   = ["arn:aws:logs:${var.region}:${data.aws_caller_identity.current.account_id}:log-group:*"]
+    }
+  }
+}
+
+resource "aws_kms_key_policy" "atom" {
+  key_id = aws_kms_key.atom.id
+  policy = data.aws_iam_policy_document.kms.json
+}
+
 # --------------------------------------------------------------- logs, rolling
 
 resource "aws_s3_bucket" "logs" {
@@ -51,6 +105,13 @@ resource "aws_s3_bucket_lifecycle_configuration" "logs" {
 resource "aws_s3_bucket" "archive" {
   bucket = "atom-logs-archive-${data.aws_caller_identity.current.account_id}-${var.env}"
   tags   = { Name = "atom-logs-archive" }
+
+  # Object Lock must be enabled AT CREATION. It cannot be turned on later by
+  # applying aws_s3_bucket_object_lock_configuration to an existing bucket, so
+  # forgetting it here is not a fixable mistake — it means destroying the bucket
+  # that exists to be undestroyable, and `prevent_destroy` below correctly
+  # refuses. Getting this right on the first apply is the whole game.
+  object_lock_enabled = true
 
   lifecycle {
     prevent_destroy = true

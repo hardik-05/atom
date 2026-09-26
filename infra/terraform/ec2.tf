@@ -10,7 +10,7 @@ locals {
 }
 
 resource "aws_instance" "engine" {
-  ami                    = data.aws_ssm_parameter.al2023.value
+  ami                     = data.aws_ssm_parameter.al2023.value
   instance_type           = var.instance_type
   subnet_id               = aws_subnet.public.id
   vpc_security_group_ids  = [aws_security_group.engine.id]
