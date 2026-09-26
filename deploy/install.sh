@@ -27,7 +27,11 @@ date +%s > "$MARKER_DIR/last-activity"
 id atom >/dev/null 2>&1 || useradd --system --home-dir "$ROOT" --shell /sbin/nologin atom
 install -d -m 0755 -o root -g root "$ROOT" "$ROOT/releases" /etc/atom
 install -d -m 0750 -o atom -g atom /var/log/atom
-chown atom:atom "$MARKER_DIR"
+# -R: the marker file written above is root's until this line. A root-owned
+# marker is one the engine cannot touch, so console use would never count as
+# activity and the timer would stop the instance an hour after boot. The first
+# deploy shipped exactly that.
+chown -R atom:atom "$MARKER_DIR"
 
 # --------------------------------------------------------------- release
 log "fetching release $VERSION"
@@ -101,7 +105,11 @@ UNIT
 fi
 sed "s|__PUBLIC_HOST__|$PUBLIC_HOST|" "$RELEASE/deploy/Caddyfile.tmpl" > /etc/caddy/Caddyfile
 /usr/local/bin/caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile >/dev/null
+# Ownership AFTER validate: validating provisions the log writer, which creates
+# access.log as root — and Caddy, running as its own user, then cannot open it
+# and refuses to start. The first deploy failed exactly this way.
 chown caddy:caddy /etc/caddy/Caddyfile
+chown -R caddy:caddy /var/log/caddy
 
 # ---------------------------------------------------------------- switch
 PREVIOUS=$(readlink -f "$ROOT/current" 2>/dev/null || true)

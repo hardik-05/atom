@@ -37,6 +37,7 @@ from atom.domain.errors import (
 )
 from atom.infra import secrets as paths
 from atom.infra.clock import today_ist
+from atom.infra.secrets import SecretNotFoundError
 from atom.orchestration.engine import Engine
 from atom.orchestration.jobs import Job, JobRunner
 from atom.orchestration.runner import RunService
@@ -226,9 +227,16 @@ def create_app(engine: Engine, jobs: JobRunner) -> FastAPI:
 
     # ---------------------------------------------------------------- auth
     def current_user(request: Request) -> str:
-        user = security.read_session(
-            request.cookies.get(security.SESSION_COOKIE), secret(paths.CONSOLE_SESSION_KEY)
-        )
+        cookie = request.cookies.get(security.SESSION_COOKIE)
+        if not cookie:
+            # Decided before any secret is read: an anonymous request must get a
+            # plain 401, never an error that reveals how the console is set up.
+            raise _UnauthorisedError()
+        try:
+            key = secret(paths.CONSOLE_SESSION_KEY)
+        except SecretNotFoundError:
+            raise _UnauthorisedError() from None
+        user = security.read_session(cookie, key)
         if user is None:
             raise _UnauthorisedError()
         marker = engine.settings.activity_marker
@@ -259,11 +267,17 @@ def create_app(engine: Engine, jobs: JobRunner) -> FastAPI:
         wait = throttle.locked_for(client)
         if wait:
             return _json({"error": f"too many attempts; try again in {wait // 60 + 1} min"}, 429)
-        ok = (
-            body.username == secret(paths.CONSOLE_USERNAME)
-            and security.verify_password(body.password, secret(paths.CONSOLE_PASSWORD_HASH))
-            and security.verify_totp(secret(paths.CONSOLE_TOTP), body.totp)
-        )
+        try:
+            ok = (
+                body.username == secret(paths.CONSOLE_USERNAME)
+                and security.verify_password(body.password, secret(paths.CONSOLE_PASSWORD_HASH))
+                and security.verify_totp(secret(paths.CONSOLE_TOTP), body.totp)
+            )
+        except SecretNotFoundError:
+            # The operator needs to know the console is not set up; the SSM path
+            # and which part is missing stay in the engine's own log.
+            message = "console sign-in is not configured yet — run: python -m atom.cli console-setup"
+            return _json({"error": message}, 503)
         if not ok:
             throttle.fail(client)
             # One message for every failure: which factor was wrong is information

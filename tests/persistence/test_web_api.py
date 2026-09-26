@@ -297,3 +297,42 @@ def test_plan_release_settle_over_http(client, migrated_dsn: str) -> None:  # ty
     assert settled["new_fills"] == 1
     positions = c.get(f"/api/accounts/{account}/positions").json()
     assert positions[0]["quantity_open"] == 110
+
+
+def test_an_unconfigured_console_leaks_nothing_to_anonymous_callers(migrated_dsn: str) -> None:
+    """Before console-setup, an anonymous request is a plain 401 — not an error
+    naming which SSM parameter is missing — and sign-in says what to run."""
+    pool = make_pool(
+        DbSettings(
+            dsn=migrated_dsn,
+            min_size=1,
+            max_size=1,
+            connect_timeout_sec=10,
+            statement_timeout_ms=30_000,
+        )
+    )
+    settings = Settings(
+        env="dev",
+        region="ap-south-1",
+        public_base_url="http://testserver",
+        secret_backend="memory",
+        static_dir=None,
+        activity_marker=None,
+        cookie_secure=False,
+    )
+    engine = Engine(pool=pool, secrets=MemorySecretStore(), settings=settings)
+    jobs = JobRunner()
+    with TestClient(create_app(engine, jobs)) as c:
+        anonymous = c.get("/api/overview")
+        assert anonymous.status_code == 401
+        assert "/atom/" not in anonymous.text
+        forged = c.get("/api/overview", cookies={"atom_session": "a.b"})
+        assert forged.status_code == 401
+        login = c.post(
+            "/api/auth/login",
+            headers=HDR,
+            json={"username": "x", "password": "y", "totp": "000000"},
+        )
+        assert login.status_code == 503 and "console-setup" in login.json()["error"]
+        assert "/atom/" not in login.text
+    jobs.shutdown()
