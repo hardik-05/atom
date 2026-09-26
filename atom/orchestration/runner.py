@@ -62,6 +62,34 @@ from atom.strategy.sell import SellInput, plan_sells
 MARKET_CLOSE = (15, 30)
 
 
+def sell_authorisation_blocked(
+    caps: Any, flags: dict[str, Any], mode: str, recorded: str | None
+) -> str | None:
+    """Why the sell pass must be skipped, or ``None`` if sells may go.
+
+    The operator's record comes first (0018): DDPI or POA on the account means a
+    sell needs no per-order depository step. Only when nothing is recorded does
+    the engine fall back to the broker's own profile flags — and when those show
+    neither, it skips the pass rather than discover the refusal order by order.
+    """
+    if mode != "LIVE" or not caps.requires_sell_authorisation:
+        return None
+    if recorded in ("DDPI", "POA"):
+        return None
+    if recorded == "EDIS":
+        return (
+            f"sell pass skipped: the account is recorded as EDIS, so every {caps.broker_code} "
+            "sell needs a per-order depository authorisation first"
+        )
+    if flags.get("poa") or flags.get("ddpi"):
+        return None
+    return (
+        f"sell pass skipped: {caps.broker_code} needs depository authorisation "
+        f"({caps.sell_authorisation_scope.value}), the account's authorisation is not "
+        "recorded, and the broker profile shows neither POA nor DDPI"
+    )
+
+
 @dataclass(frozen=True, slots=True)
 class PlanResult:
     run_id: int
@@ -280,7 +308,9 @@ class RunService:
                     message=f"{info.get(s.instrument_id, {}).get('symbol', s.instrument_id)}: "
                     f"{s.reason}",
                 )
-            sells_blocked = self._sell_authorisation_blocked(adapter, probe.flags, mode)
+            sells_blocked = sell_authorisation_blocked(
+                adapter.capabilities, probe.flags, mode, acct.get("depository_authorisation")
+            )
             if sells_blocked and tranches:
                 runs.log(conn, run_id, level="WARNING", stage="SELL", message=sells_blocked)
                 tranches = []
@@ -471,18 +501,6 @@ class RunService:
             conn, run_id, level="INFO", stage="RECONCILE", message="books agree with the broker"
         )
         return free
-
-    @staticmethod
-    def _sell_authorisation_blocked(adapter: Any, flags: dict[str, Any], mode: str) -> str | None:
-        caps = adapter.capabilities
-        if mode != "LIVE" or not caps.requires_sell_authorisation:
-            return None
-        if flags.get("poa") or flags.get("ddpi"):
-            return None
-        return (
-            f"sell pass skipped: {caps.broker_code} needs depository authorisation "
-            f"({caps.sell_authorisation_scope.value}) and the account shows neither POA nor DDPI"
-        )
 
     # =============================================================== release
     def release(self, run_id: int, *, actor: str) -> dict[str, Any]:

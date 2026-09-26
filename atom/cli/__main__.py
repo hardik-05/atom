@@ -130,6 +130,18 @@ def migrate(args: argparse.Namespace) -> None:
         print("applied", name)
 
 
+CLOUDFLARE_TOKEN = "/ops/cloudflare/dns_token"
+"""Outside /atom/* on purpose: the engine's role reads /atom/*, and an engine that
+could rewrite DNS could send the operator's browser, and password, anywhere."""
+
+
+def cloudflare_token(args: argparse.Namespace) -> None:
+    store = _store(args)
+    value = _prompt("Cloudflare API token (Zone:DNS:Edit on metaalgocapital.com)", min_len=20)
+    store.put(CLOUDFLARE_TOKEN, value.strip())
+    print(f"stored at {CLOUDFLARE_TOKEN} — the engine cannot read this path")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(prog="atom")
     parser.add_argument("--profile", default="atom")
@@ -158,12 +170,15 @@ def main() -> None:
     m = sub.add_parser("migrate", help="apply migrations to the configured database")
     m.add_argument("--dsn-from-ssm", action="store_true")
 
+    sub.add_parser("cloudflare-token", help="store a scoped Cloudflare DNS token")
+
     args = parser.parse_args()
     {
         "console-setup": console_setup,
         "broker-secret": broker_secret,
         "db-login": db_login,
         "migrate": migrate,
+        "cloudflare-token": cloudflare_token,
     }[args.command](args)
 
 

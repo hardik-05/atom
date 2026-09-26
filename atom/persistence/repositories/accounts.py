@@ -15,6 +15,7 @@ Conn = Connection[Any]
 _ACCOUNT_SELECT = """
     SELECT a.trading_account_id, a.investor_id, a.broker_client_code, a.execution_mode,
            host(a.egress_ip) AS egress_ip, a.proxy_url, a.status, a.onboarded_at, a.created_at,
+           a.depository_authorisation,
            i.display_name AS investor_name, i.external_key AS investor_key,
            b.broker_id, b.broker_code, b.display_name AS broker_name, b.auth_flow,
            b.supports_gtt
@@ -63,18 +64,27 @@ def create_account(
     execution_mode: str,
     egress_ip: str | None,
     proxy_url: str | None,
+    depository_authorisation: str = "UNKNOWN",
 ) -> int:
     row = fetch_exactly_one(
         conn,
         """
         INSERT INTO atom.trading_account
             (investor_id, broker_id, broker_client_code, execution_mode, egress_ip, proxy_url,
-             status)
-        SELECT %s, broker_id, %s, %s, %s, %s, 'ACTIVE'
+             status, depository_authorisation)
+        SELECT %s, broker_id, %s, %s, %s, %s, 'ACTIVE', %s
         FROM atom.broker WHERE broker_code = %s
         RETURNING trading_account_id
         """,
-        (investor_id, broker_client_code, execution_mode, egress_ip, proxy_url, broker_code),
+        (
+            investor_id,
+            broker_client_code,
+            execution_mode,
+            egress_ip,
+            proxy_url,
+            depository_authorisation,
+            broker_code,
+        ),
     )
     return int(row["trading_account_id"])
 
@@ -86,6 +96,16 @@ def list_accounts(conn: Conn) -> list[dict[str, Any]]:
 def get_account(conn: Conn, account_id: int) -> dict[str, Any]:
     return fetch_exactly_one(
         conn, _ACCOUNT_SELECT + " WHERE a.trading_account_id = %s", (account_id,)
+    )
+
+
+def set_depository_authorisation(conn: Conn, account_id: int, value: str) -> None:
+    execute_expecting(
+        conn,
+        "UPDATE atom.trading_account SET depository_authorisation = %s "
+        "WHERE trading_account_id = %s",
+        (value, account_id),
+        rows=1,
     )
 
 

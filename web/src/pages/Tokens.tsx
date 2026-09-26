@@ -163,6 +163,8 @@ export function Tokens() {
         >
           {session ? (
             <dl className="grid grid-cols-[120px_1fr] gap-y-2 text-[13px]">
+              <dt className="text-muted">Sell authorisation</dt>
+              <dd>{account.depository_authorisation}</dd>
               <dt className="text-muted">Status</dt>
               <dd>
                 <Badge tone={statusTone(session.status)}>{session.status}</Badge>

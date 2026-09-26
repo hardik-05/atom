@@ -75,6 +75,7 @@ export interface Account {
   status: string;
   onboarded_at: string | null;
   auth_flow: string;
+  depository_authorisation: "DDPI" | "POA" | "EDIS" | "UNKNOWN";
   session?: Session | null;
   secrets_present?: Record<string, boolean>;
 }

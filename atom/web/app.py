@@ -52,6 +52,7 @@ from atom.persistence.repositories import accounts, instruments, orders, runs, u
 from atom.web import security
 
 CSRF_HEADER = "x-atom-request"
+DEPOSITORY = ("DDPI", "POA", "EDIS", "UNKNOWN")
 
 
 # ---------------------------------------------------------------- encoding
@@ -118,6 +119,11 @@ class AccountBody(BaseModel):
     execution_mode: str
     egress_ip: str | None = None
     proxy_url: str | None = None
+    depository_authorisation: str
+
+
+class DepositoryBody(BaseModel):
+    depository_authorisation: str
 
 
 class CodeBody(BaseModel):
@@ -371,6 +377,8 @@ def create_app(engine: Engine, jobs: JobRunner) -> FastAPI:
     def create_account(body: AccountBody, user: str = Depends(current_user)) -> Response:
         if body.execution_mode not in ("LIVE", "DRY"):
             raise ValidationError("execution_mode must be LIVE or DRY")
+        if body.depository_authorisation not in DEPOSITORY:
+            raise ValidationError(f"depository_authorisation must be one of {DEPOSITORY}")
         with transaction(engine.pool) as conn:
             aid = accounts.create_account(
                 conn,
@@ -380,6 +388,7 @@ def create_app(engine: Engine, jobs: JobRunner) -> FastAPI:
                 execution_mode=body.execution_mode,
                 egress_ip=body.egress_ip,
                 proxy_url=body.proxy_url,
+                depository_authorisation=body.depository_authorisation,
             )
             accounts.audit(
                 conn,
@@ -413,6 +422,24 @@ def create_app(engine: Engine, jobs: JobRunner) -> FastAPI:
                 for name in ("api_key", "api_secret")
             }
         return _json(acct)
+
+    @api.put("/accounts/{account_id}/depository")
+    def set_depository(
+        account_id: int, body: DepositoryBody, user: str = Depends(current_user)
+    ) -> Response:
+        if body.depository_authorisation not in DEPOSITORY:
+            raise ValidationError(f"depository_authorisation must be one of {DEPOSITORY}")
+        with transaction(engine.pool) as conn:
+            accounts.set_depository_authorisation(conn, account_id, body.depository_authorisation)
+            accounts.audit(
+                conn,
+                actor=user,
+                action="depository_authorisation_set",
+                entity="trading_account",
+                entity_id=account_id,
+                payload={"value": body.depository_authorisation},
+            )
+        return _json({"ok": True})
 
     # --------------------------------------------------------------- tokens
     @api.post("/accounts/{account_id}/token/authorize")

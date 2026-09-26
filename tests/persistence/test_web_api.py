@@ -133,6 +133,7 @@ def test_the_whole_console_flow(client) -> None:  # type: ignore[no-untyped-def]
             "broker_code": "UPSTOX",
             "broker_client_code": "nid001",
             "execution_mode": "DRY",
+            "depository_authorisation": "DDPI",
         },
     ).json()
     account = created["trading_account_id"]
@@ -171,6 +172,7 @@ def test_plan_release_settle_over_http(client, migrated_dsn: str) -> None:  # ty
             "broker_code": "UPSTOX",
             "broker_client_code": "NID002",
             "execution_mode": "DRY",
+            "depository_authorisation": "DDPI",
         },
     ).json()["trading_account_id"]
 

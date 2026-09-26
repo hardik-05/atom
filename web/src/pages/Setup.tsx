@@ -30,6 +30,7 @@ export function SetupPage() {
     execution_mode: "DRY",
     egress_ip: "13.127.7.83",
     proxy_url: "http://127.0.0.1:3128",
+    depository_authorisation: "DDPI",
   });
   const [next, setNext] = useState<string | null>(null);
 
@@ -130,6 +131,14 @@ export function SetupPage() {
               <select className={inputCls} value={acc.execution_mode} onChange={(e) => setAcc({ ...acc, execution_mode: e.target.value })}>
                 <option value="DRY">DRY — paper</option>
                 <option value="LIVE">LIVE — real orders</option>
+              </select>
+            </Field>
+            <Field label="Depository authorisation" hint="How the demat account authorises sells. DDPI or POA: sells need no per-order step.">
+              <select className={inputCls} value={acc.depository_authorisation} onChange={(e) => setAcc({ ...acc, depository_authorisation: e.target.value })}>
+                <option value="DDPI">DDPI</option>
+                <option value="POA">POA</option>
+                <option value="EDIS">EDIS — authorise each sell</option>
+                <option value="UNKNOWN">Unknown — use the broker's flags</option>
               </select>
             </Field>
             <div className="grid grid-cols-2 gap-3">
