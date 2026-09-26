@@ -37,9 +37,12 @@ from atom.domain.models import (
     AccountRef,
     AuthorisationRequest,
     BrokerCapabilities,
+    BrokerProfile,
+    CanonicalCandle,
     CanonicalCashEvent,
     CanonicalCharges,
     CanonicalFill,
+    CanonicalFunds,
     CanonicalHolding,
     CanonicalInstrument,
     CanonicalQuote,
@@ -90,6 +93,11 @@ class FakeBrokerState:
     gtts: dict[str, GttState] = field(default_factory=dict)
     fills: list[CanonicalFill] = field(default_factory=list)
 
+    candles: dict[int, list[CanonicalCandle]] = field(default_factory=dict)
+    """Daily bars per instrument id, oldest first."""
+    profile_client_id: str | None = None
+    """The client id the fake profile reports. ``None`` echoes the account's own."""
+
     seen_refs: set[str] = field(default_factory=set)
     token_valid: bool = True
     fill_immediately: bool = True
@@ -136,6 +144,14 @@ class FakeAdapter:
         self.calls.append("revoke_token")
         self.state.token_valid = False
 
+    def fetch_profile(self, account: AccountRef) -> BrokerProfile:
+        self.calls.append("fetch_profile")
+        return BrokerProfile(
+            broker_client_id=self.state.profile_client_id or account.broker_client_id,
+            display_name="Fake Investor",
+            is_active=self.state.token_valid,
+        )
+
     # ------------------------------------------------------- reference data
     def fetch_instruments(self) -> Iterable[CanonicalInstrument]:
         self.calls.append("fetch_instruments")
@@ -149,6 +165,21 @@ class FakeAdapter:
     def fetch_positions(self, account: AccountRef) -> list[CanonicalHolding]:
         self.calls.append("fetch_positions")
         return []
+
+    def fetch_funds(self, account: AccountRef) -> CanonicalFunds:
+        self.calls.append("fetch_funds")
+        return CanonicalFunds(
+            available_cash=self.state.available_cash,
+            used_margin=ZERO,
+            as_of=datetime.now(UTC),
+        )
+
+    def fetch_daily_candles(
+        self, account: AccountRef, broker_token: str, from_date: date, to_date: date
+    ) -> list[CanonicalCandle]:
+        self.calls.append("fetch_daily_candles")
+        bars = self.state.candles.get(int(broker_token), [])
+        return [bar for bar in bars if from_date <= bar.trade_date <= to_date]
 
     def fetch_quotes(
         self, account: AccountRef, broker_tokens: Sequence[str]

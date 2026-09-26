@@ -36,7 +36,7 @@ def test_seed_data_is_present(conn) -> None:  # type: ignore[no-untyped-def]
         "ZERODHA",
     ]
     keys = fetch_exactly_one(conn, "SELECT count(*) AS n FROM atom.config_key")
-    assert keys["n"] == 24
+    assert keys["n"] == 26  # 24 from 0016, plus the two 0017 adds
 
 
 def test_fetch_exactly_one_rejects_no_rows(conn) -> None:  # type: ignore[no-untyped-def]

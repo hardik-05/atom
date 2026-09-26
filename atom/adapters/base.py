@@ -6,7 +6,7 @@ canonical objects and the engine persists them. That separation is what lets an
 adapter be tested against recorded vendor fixtures with neither network nor
 database.
 
-Seventeen required methods. ``modify_order`` and ``modify_gtt`` are deliberately
+Twenty required methods. ``modify_order`` and ``modify_gtt`` are deliberately
 absent: ATOM cancels and re-places (D-063), and an unused method is a liability
 that invites someone to use it.
 """
@@ -21,9 +21,12 @@ from atom.domain.models import (
     AccountRef,
     AuthorisationRequest,
     BrokerCapabilities,
+    BrokerProfile,
+    CanonicalCandle,
     CanonicalCashEvent,
     CanonicalCharges,
     CanonicalFill,
+    CanonicalFunds,
     CanonicalHolding,
     CanonicalInstrument,
     CanonicalQuote,
@@ -34,6 +37,32 @@ from atom.domain.models import (
     Token,
     TokenProbeResult,
 )
+
+
+@runtime_checkable
+class InstrumentResolver(Protocol):
+    """Maps a broker's instrument identifier to ATOM's ``instrument_id`` and back.
+
+    This is stage 4 of the inbound pipeline — *enrich* — and it is injected rather
+    than done by the adapter, because resolving means reading (and, for an
+    instrument seen for the first time, writing) ``instrument`` and
+    ``broker_instrument``. An adapter never touches the database, so the engine
+    hands it this object and owns what it does.
+    """
+
+    def instrument_id_for(self, broker_token: str) -> int | None:
+        """``None`` when ATOM has never seen this instrument."""
+        ...
+
+    def broker_token_for(self, instrument_id: int) -> str:
+        """The broker's key for an ATOM instrument. Raises if unmapped."""
+        ...
+
+    def register(self, instrument: CanonicalInstrument) -> int:
+        """Record an instrument met for the first time — in a holding, say — and
+        return its id. Resolution is by ISIN (D-187); a row without one is never
+        matched on symbol alone."""
+        ...
 
 
 @runtime_checkable
@@ -59,6 +88,10 @@ class BrokerAdapter(Protocol):
         """Actively invalidate the session. A no-op where the broker offers none."""
         ...
 
+    def fetch_profile(self, account: AccountRef) -> BrokerProfile:
+        """Whose token this is. Compared to the account before the token is kept."""
+        ...
+
     # ------------------------------------------------------- reference data
     def fetch_instruments(self) -> Iterable[CanonicalInstrument]:
         """The broker's instrument master. Public and token-free on three of five."""
@@ -68,6 +101,21 @@ class BrokerAdapter(Protocol):
     def fetch_holdings(self, account: AccountRef) -> list[CanonicalHolding]: ...
 
     def fetch_positions(self, account: AccountRef) -> list[CanonicalHolding]: ...
+
+    def fetch_funds(self, account: AccountRef) -> CanonicalFunds:
+        """Cash available for a delivery buy, as the broker reports it."""
+        ...
+
+    def fetch_daily_candles(
+        self, account: AccountRef, broker_token: str, from_date: date, to_date: date
+    ) -> list[CanonicalCandle]:
+        """Daily bars, oldest first, inclusive of both ends.
+
+        The deviation metric is computed from these closes, so a gap here is a gap
+        in the strategy's view of the market — the caller records which days came
+        back, and never interpolates a missing close.
+        """
+        ...
 
     def fetch_quotes(
         self, account: AccountRef, broker_tokens: Sequence[str]

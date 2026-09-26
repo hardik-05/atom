@@ -48,7 +48,10 @@ VALUES ('INV-TEST', 'Test Investor', 'SELF', DATE '2026-04-01');
 INSERT INTO atom.broker
     (broker_code, display_name, supports_gtt, supports_charges_api,
      supports_ledger_api, auth_flow)
-VALUES ('DHAN', 'Dhan', true, true, true, 'CREDENTIAL_LOGIN');
+VALUES ('DHAN', 'Dhan', true, true, true, 'CREDENTIAL_LOGIN')
+-- 0016 seeds the five brokers, so on a fully migrated database this row already
+-- exists. The fixture must not assume an empty table.
+ON CONFLICT (broker_code) DO NOTHING;
 
 INSERT INTO atom.trading_account
     (investor_id, broker_id, broker_client_code, execution_mode, status)
@@ -429,12 +432,68 @@ SELECT pg_temp.check_that(
 );
 
 -- --------------------------------------------------------------------------
+-- 0017 — config scope is enforced, and one value per account-level key
+-- --------------------------------------------------------------------------
+DO $do$ BEGIN RAISE NOTICE '== config =='; END $do$;
+
+-- A GLOBAL key cannot be written per account: one kill switch, not N.
+SELECT pg_temp.expect_reject($$
+    INSERT INTO atom.account_config
+        (trading_account_id, config_key_id, universe_id, value_text, updated_by)
+    SELECT a.trading_account_id, k.config_key_id, u.universe_id, 'true', 'test'
+    FROM atom.trading_account a, atom.config_key k, atom.universe u
+    WHERE k.key_name = 'kill_switch' LIMIT 1
+$$, 'account_config_scope_ck');
+
+-- ... and a non-GLOBAL key cannot be written globally.
+SELECT pg_temp.expect_reject($$
+    INSERT INTO atom.global_config (config_key_id, value_text, updated_by)
+    SELECT config_key_id, '10000', 'test' FROM atom.config_key
+    WHERE key_name = 'trade_amount_inr'
+$$, 'global_config_scope_ck');
+
+-- An account-level key takes no category; a per-category key requires one.
+SELECT pg_temp.expect_reject($$
+    INSERT INTO atom.account_config
+        (trading_account_id, config_key_id, universe_id, category_code, value_text, updated_by)
+    SELECT a.trading_account_id, k.config_key_id, u.universe_id, 'EQUITY', '10', 'test'
+    FROM atom.trading_account a, atom.config_key k, atom.universe u
+    WHERE k.key_name = 'max_orders_per_run' LIMIT 1
+$$, 'account_config_scope_ck');
+
+SELECT pg_temp.expect_reject($$
+    INSERT INTO atom.account_config
+        (trading_account_id, config_key_id, universe_id, value_text, updated_by)
+    SELECT a.trading_account_id, k.config_key_id, u.universe_id, '3.5', 'test'
+    FROM atom.trading_account a, atom.config_key k, atom.universe u
+    WHERE k.key_name = 'profit_target_pct' LIMIT 1
+$$, 'account_config_scope_ck');
+
+-- NULLs are not distinct: a second value for the same account-level key is refused.
+INSERT INTO atom.account_config
+    (trading_account_id, config_key_id, universe_id, value_text, updated_by)
+SELECT a.trading_account_id, k.config_key_id, u.universe_id, '10', 'test'
+FROM atom.trading_account a, atom.config_key k, atom.universe u
+WHERE k.key_name = 'max_orders_per_run' AND a.broker_client_code = 'CLIENT-DRY' LIMIT 1;
+
+SELECT pg_temp.expect_reject($$
+    INSERT INTO atom.account_config
+        (trading_account_id, config_key_id, universe_id, value_text, updated_by)
+    SELECT a.trading_account_id, k.config_key_id, u.universe_id, '99', 'test'
+    FROM atom.trading_account a, atom.config_key k, atom.universe u
+    WHERE k.key_name = 'max_orders_per_run' AND a.broker_client_code = 'CLIENT-DRY' LIMIT 1
+$$, 'account_config_one_value_uk');
+
+SELECT pg_temp.check_that('the budget buffer key D-059b names now exists',
+    EXISTS (SELECT 1 FROM atom.config_key WHERE key_name = 'budget_buffer_pct'));
+
+-- --------------------------------------------------------------------------
 -- Structure
 -- --------------------------------------------------------------------------
 DO $do$ BEGIN RAISE NOTICE '== structure =='; END $do$;
-SELECT pg_temp.check_that('38 tables exist',
+SELECT pg_temp.check_that('40 tables exist',
     (SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
-     WHERE n.nspname = 'atom' AND c.relkind = 'r') = 38);
+     WHERE n.nspname = 'atom' AND c.relkind = 'r') = 40);
 
 SELECT pg_temp.check_that('4 views exist',
     (SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
@@ -445,7 +504,7 @@ SELECT pg_temp.check_that('RLS is enabled on every table',
                 WHERE n.nspname = 'atom' AND c.relkind = 'r' AND NOT c.relrowsecurity));
 
 SELECT pg_temp.check_that('every table has a policy',
-    (SELECT count(DISTINCT tablename) FROM pg_policies WHERE schemaname = 'atom') = 38);
+    (SELECT count(DISTINCT tablename) FROM pg_policies WHERE schemaname = 'atom') = 40);
 
 SELECT pg_temp.check_that('every view is security_invoker',
     NOT EXISTS (SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace

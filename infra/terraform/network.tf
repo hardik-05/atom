@@ -44,7 +44,7 @@ resource "aws_route_table_association" "public" {
 
 resource "aws_security_group" "engine" {
   name        = "atom-engine"
-  description = "ATOM engine: console inbound on 443 only; port 22 closed by design"
+  description = "ATOM engine: console on 443, ACME/redirect on 80; port 22 closed by design"
   vpc_id      = aws_vpc.main.id
 
   # Port 22 is deliberately absent. SSM Session Manager gives a shell through the
@@ -56,6 +56,27 @@ resource "aws_security_group" "engine" {
     to_port     = 443
     protocol    = "tcp"
     cidr_blocks = var.allow_console_from
+  }
+
+  # Port 80 serves exactly two things: a 308 redirect to https, and the ACME
+  # HTTP-01 challenge Let's Encrypt uses to issue and renew the certificate.
+  #
+  # It is open to the world ON PURPOSE, and stays that way even when
+  # allow_console_from is narrowed to the operator's own address. Let's Encrypt
+  # validates from several vantage points whose addresses are not published, so
+  # a narrowed port 80 does not fail at issuance -- it fails 60 days later at
+  # RENEWAL, quietly, and the first symptom is an expired certificate on the
+  # console. Pinning this to 0.0.0.0/0 separately from the console rule is what
+  # stops a future tightening of that variable from arming that trap.
+  #
+  # If port 80 must eventually close, the replacement is a DNS-01 challenge with
+  # a scoped Cloudflare token, not a narrower CIDR here.
+  ingress {
+    description = "ACME HTTP-01 challenge and redirect to 443 - must stay world-open"
+    from_port   = 80
+    to_port     = 80
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
   }
 
   # Broker endpoints are documented by hostname and change without notice, so

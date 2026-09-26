@@ -290,6 +290,69 @@ class CanonicalQuote:
             raise ValueError("as_of must be timezone-aware")
 
 
+# -------------------------------------------------------------------------- funds
+
+
+@dataclass(frozen=True, slots=True)
+class CanonicalFunds:
+    """Cash at a broker, as the broker reports it.
+
+    ``available_cash`` is what the broker says can be spent on a delivery buy now.
+    It is informational: funds cannot be known reliably ahead of the exchange, so
+    a buy the broker rejects for funds is recorded, not prevented (D-052).
+    ``components`` keeps the broker's own named figures for display, so nothing
+    is summed into a number the broker never published.
+    """
+
+    available_cash: Decimal
+    used_margin: Decimal
+    as_of: datetime
+    components: dict[str, Decimal] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        if self.as_of.tzinfo is None:
+            raise ValueError("as_of must be timezone-aware")
+
+
+# ------------------------------------------------------------------------- candle
+
+
+@dataclass(frozen=True, slots=True)
+class CanonicalCandle:
+    """One daily bar. The deviation metric is computed from ``close``."""
+
+    trade_date: date
+    open: Decimal
+    high: Decimal
+    low: Decimal
+    close: Decimal
+    volume: int | None = None
+
+    def __post_init__(self) -> None:
+        if self.close <= 0:
+            raise ValueError(f"close must be positive, got {self.close}")
+        if self.high < self.low:
+            raise ValueError(f"high {self.high} below low {self.low} on {self.trade_date}")
+
+
+# ------------------------------------------------------------------------ profile
+
+
+@dataclass(frozen=True, slots=True)
+class BrokerProfile:
+    """Who a token belongs to.
+
+    Checked against the account the token was generated FOR: a code pasted into
+    the wrong account's screen would otherwise bind one investor's broker session
+    to another investor's ledger.
+    """
+
+    broker_client_id: str
+    display_name: str
+    is_active: bool
+    flags: dict[str, object] = field(default_factory=dict)
+
+
 # ---------------------------------------------------------------------------- lot
 
 

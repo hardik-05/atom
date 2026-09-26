@@ -13,7 +13,6 @@ nothing has tested.
 from __future__ import annotations
 
 import os
-import subprocess
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -40,18 +39,13 @@ def migrated_dsn() -> str:
     holding real data. The DSN is a separate variable from the engine's own
     ``ATOM_DATABASE_URL`` for precisely that reason.
     """
+    from atom.persistence.migrate import apply_all
+
     dsn = _dsn()
-    with psycopg.connect(dsn, autocommit=True) as conn:
-        conn.execute("DROP SCHEMA IF EXISTS atom CASCADE")
-    for path in sorted(MIGRATIONS.glob("0*.sql")):
-        result = subprocess.run(
-            ["psql", dsn, "-v", "ON_ERROR_STOP=1", "-q", "-f", str(path)],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        if result.returncode != 0:
-            pytest.fail(f"migration {path.name} failed:\n{result.stderr}")
+    try:
+        apply_all(dsn, drop_schema_first=True, directory=MIGRATIONS)
+    except RuntimeError as exc:
+        pytest.fail(str(exc))
     return dsn
 
 
