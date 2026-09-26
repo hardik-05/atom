@@ -1,0 +1,47 @@
+# Line endings.
+#
+# core.autocrlf=true is set on at least one developer machine, so without this
+# file a fresh clone on Windows gets CRLF in the working copy. That is harmless
+# for most files and fatal for a few:
+#
+#   user_data.sh.tftpl  Terraform reads it from the working copy and embeds it
+#                       in EC2 user data. A CRLF shebang -- "#!/bin/bash\r" --
+#                       makes the kernel look for an interpreter named
+#                       "/bin/bash\r", which does not exist. The instance boots
+#                       with no engine and no proxy, and the only evidence is an
+#                       empty bootstrap log.
+#   Makefile            recipe lines are tab-significant; make on Linux does not
+#                       accept a trailing \r.
+#   *.sh                same shebang problem, everywhere.
+#
+# `* text=auto` normalises to LF in the repository regardless of platform; the
+# explicit `eol=lf` entries additionally force LF in the WORKING COPY, which is
+# what Terraform and make actually read.
+
+* text=auto
+
+*.sh        text eol=lf
+*.tftpl     text eol=lf
+*.sql       text eol=lf
+*.py        text eol=lf
+*.toml      text eol=lf
+*.yml       text eol=lf
+*.yaml      text eol=lf
+Makefile    text eol=lf
+*.mk        text eol=lf
+
+# Windows-native files keep CRLF.
+*.ps1       text eol=crlf
+*.bat       text eol=crlf
+*.cmd       text eol=crlf
+
+# Reference-data snapshots are left byte-for-byte as committed. They are dated
+# captures of what a source said on a given day, and renormalising them would
+# rewrite evidence to fix a whitespace preference.
+*.csv       -text
+
+# Never touched.
+*.png       binary
+*.jpg       binary
+*.ico       binary
+*.zip       binary
