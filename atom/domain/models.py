@@ -433,6 +433,16 @@ class BrokerCapabilities:
     quote_batch_size: int | None = None
 
     @property
+    def requires_sell_authorisation(self) -> bool:
+        """Whether a separate demat authorisation is needed before a sell.
+
+        Derived rather than stored, so the flag and the scope cannot disagree.
+        Upstox needs one per instruction (eDIS, ``ONE_TIME``) and Zerodha one per
+        session (``PER_SESSION``); the other three need none.
+        """
+        return self.sell_authorisation_scope is not SellAuthScope.NONE
+
+    @property
     def egress_needs_separate_check(self) -> bool:
         """True when a token probe cannot prove the egress IP is right.
 

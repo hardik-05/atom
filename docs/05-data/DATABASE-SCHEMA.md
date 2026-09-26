@@ -1,8 +1,19 @@
 # Database Schema
 
-**Status:** 🟢 v1 design · PostgreSQL (Supabase)
+**Status:** 🟢 **Built and applied.** PostgreSQL 17 (Supabase project *AtomX*)
 **Implements:** D-150 · the gate for all application code
 **Convention:** schema `atom`, snake_case, `NUMERIC(18,4)` money, `timestamptz` UTC (D-073c)
+**Code:** [`atom/persistence/migrations/`](../../atom/persistence/migrations/) — 15 numbered files
+
+> The DDL below is the design. The migrations are the truth, and they now agree:
+> 38 tables, 4 views, 121 indexes, 101 CHECK constraints, 58 foreign keys, RLS
+> and a policy on every table. `make db-verify` applies all 15 to a throwaway
+> database and asserts that each constraint rejects the row it exists to refuse.
+>
+> Three places where the implementation added something this document did not
+> have, each flagged inline below: `order_request.product` / `.validity`
+> (§9), `IN_FLIGHT` in the order status set (§9), and the D-193 constraint on
+> `harvest_chain` (§11).
 
 ---
 
@@ -445,19 +456,49 @@ CREATE TABLE atom.order_request (
     universe_id   bigint NOT NULL REFERENCES atom.universe,   -- D-156
     instrument_id bigint NOT NULL REFERENCES atom.instrument,
     side          text NOT NULL,        -- BUY | SELL
-    order_kind    text NOT NULL,        -- LIMIT | GTT
+    order_kind    text NOT NULL,        -- LIMIT | GTT     (never MARKET — D-174)
+    product       text NOT NULL DEFAULT 'DELIVERY',  -- 🆕 D-207: the only permitted value
+    validity      text NOT NULL DEFAULT 'DAY',       -- 🆕
     quantity      integer NOT NULL CHECK (quantity > 0),
     limit_price   numeric(18,4) NOT NULL,
     trigger_price numeric(18,4),
     idempotency_key text NOT NULL UNIQUE,   -- written BEFORE sending (D-094)
     broker_order_id text,
-    algo_id       text,                     -- unused, reserved (D-089)
-    status        text NOT NULL,        -- INTENT | PLACED | PARTIAL | FILLED | CANCELLED | REJECTED
+    algo_id       text,                     -- unused, reserved (D-181)
+    status        text NOT NULL,        -- INTENT | PLACED | PARTIAL | FILLED
+                                        -- | CANCELLED | REJECTED | IN_FLIGHT  🆕
     reject_reason text,                 -- broker's verbatim reason (D-042)
     placed_at     timestamptz,
-    CONSTRAINT order_side_ck CHECK (side IN ('BUY','SELL'))
+    CONSTRAINT order_side_ck CHECK (side IN ('BUY','SELL')),
+    CONSTRAINT order_kind_ck CHECK (order_kind IN ('LIMIT','GTT')),
+    CONSTRAINT order_product_ck CHECK (product = 'DELIVERY'),
+    CONSTRAINT order_validity_ck CHECK (validity = 'DAY'),
+    CONSTRAINT order_status_ck CHECK (status IN
+        ('INTENT','PLACED','PARTIAL','FILLED','CANCELLED','REJECTED','IN_FLIGHT')),
+    CONSTRAINT order_gtt_needs_trigger_ck
+        CHECK ((order_kind = 'GTT') = (trigger_price IS NOT NULL))
 );
+```
 
+> 🆕 **Three additions the implementation needed.**
+>
+> **`product` and `validity`**, each constrained to a single value. D-207 rules out
+> margin, MTF, intraday and leverage everywhere, and without these columns the
+> guarantee could only be inferred from the *absence* of a product field. An
+> auditor reading an order row would have to take the design's word for it. Now
+> the row says `DELIVERY` and the constraint refuses anything else.
+>
+> **`IN_FLIGHT` in the status set.** D-180 makes IN_FLIGHT the mandatory mapping
+> for any broker status ATOM does not recognise, and it is never terminal. The
+> documented status list here omitted it, which would have left the adapter layer
+> producing a value the database rejects — so the first unfamiliar status from any
+> broker would have failed the write rather than been recorded as unknown.
+>
+> **`order_gtt_needs_trigger_ck`**, an equivalence rather than two one-way checks:
+> a GTT is *defined* by its trigger and a plain limit order has none, so the two
+> nonsense rows are refused in one constraint.
+
+```sql
 CREATE TABLE atom.order_fill (
     order_fill_id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     order_request_id bigint NOT NULL REFERENCES atom.order_request,
@@ -797,11 +838,16 @@ CREATE TABLE atom.harvest_chain (
     proxy_tier   text,                   -- NULL in v1 (D-163); TIER1 | TIER2 in V2-14
     booked_loss  numeric(18,4) NOT NULL,
     carried_basis_amount numeric(18,4),  -- D-188: what the synthetic basis carries forward
-    chain_depth  integer NOT NULL DEFAULT 1,   -- D-189: harvests deep, 1 = first
+    chain_depth  integer NOT NULL DEFAULT 1,   -- D-193: always 1; chaining is not allowed
     selected_by  text,                   -- operator who chose the pairing (D-163)
     status       text NOT NULL,          -- PROPOSED | EXECUTED | INCOMPLETE  (D-070b)
     approved_by  text,
-    created_at   timestamptz NOT NULL DEFAULT now()
+    created_at   timestamptz NOT NULL DEFAULT now(),
+    CONSTRAINT harvest_no_chaining_ck CHECK (chain_depth = 1),           -- 🆕 D-193
+    CONSTRAINT harvest_not_self_ck CHECK (proxy_lot_id IS DISTINCT FROM sold_lot_id),
+    CONSTRAINT harvest_executed_complete_ck                              -- 🆕 D-070b
+        CHECK (status <> 'EXECUTED'
+               OR (proxy_lot_id IS NOT NULL AND carried_basis_amount IS NOT NULL))
 );
 
 > ⚠️ **`correlation` and `proxy_tier` were `NOT NULL` until 2026-09-25.** They were written
@@ -842,12 +888,78 @@ charge and audit tables are retained indefinitely.*
 
 ## 12. Derived views — deliberately not tables
 
-| View | Derived from | Why not stored |
-|---|---|---|
-| `v_position` | `position_lot` where `quantity_open > 0` | Storing it invites divergence from the lots that define it |
-| `v_sellable_quantity` | `v_position` − `account_exclusion` | D-062's formula; one definition, one place |
-| `v_cash_balance` | `cash_ledger` running sum | D-046 reconstruction |
-| `v_realised_gain` | `lot_closure` + `charge` | Tax classification derives from it |
+Defined in [`0012_views.sql`](../../atom/persistence/migrations/0012_views.sql).
+
+| View | Grain | Derived from | Why not stored |
+|---|---|---|---|
+| `v_position` | account × universe × instrument | open `position_lot` rows | Storing it invites divergence from the lots that define it |
+| `v_sellable_quantity` | account × instrument | positions − `account_exclusion` | D-062's formula; one definition, one place |
+| `v_cash_balance` | account | `cash_ledger` sum | D-046 reconstruction |
+| `v_realised_gain` | one row per closure | `lot_closure` + `position_lot` + `charge` | Tax classification derives from it |
+
+Three properties they share, each a decision rather than an implementation detail:
+
+**Both cost bases, never blended.** `v_position` returns `actual_unit_cost` *and*
+`strategy_unit_cost`, plus `synthetic_quantity` and `actual_quantity` — which are
+the two sell tranches of D-195. A single blended average is the phantom-profit bug
+the tranches exist to prevent, so the view does not offer one.
+
+**Nothing coalesces to zero.** Where a broker reported no charges, `v_realised_gain`
+returns `NULL`, not `0`. `₹0.00` claims no charge was levied; a dash says we cannot
+know. The `SUM` over an empty set already gives NULL, so the correct behaviour is
+achieved by *not* writing `COALESCE` — which is easy to add by reflex and is why it
+is called out here.
+
+**`v_sellable_quantity` does not clamp.** `holding − excluded − frozen` can go
+negative when the withheld quantity exceeds what is held. `GREATEST(…, 0)` would
+hide exactly the condition Q-181 is open about, so the subtraction is reported raw.
+
+**All four are `security_invoker = true`.** A view otherwise runs with its owner's
+privileges, and the owner bypasses RLS — so without it the views would be a route
+around every policy in §12a.
+
+---
+
+## 12a. Access control — roles, grants and RLS
+
+Applied by [`0014_roles_and_rls.sql`](../../atom/persistence/migrations/0014_roles_and_rls.sql).
+Design rationale in [`../06-web/AUTH-AND-ACCESS.md`](../06-web/AUTH-AND-ACCESS.md) §4.
+
+**`atom_engine` is `NOLOGIN`.** No credential appears in the repository. A login
+role is created out of band and granted membership:
+
+```sql
+CREATE ROLE atom_api LOGIN PASSWORD '…' IN ROLE atom_engine;
+```
+
+Never `postgres`, and never reachable from a browser — the browser holds no
+database key at all, so there is one authorisation point rather than two.
+
+**Nine tables are append-only to the engine**, with `UPDATE` revoked:
+`run_candidate`, `order_fill`, `lot_closure`, `charge`, `config_history`,
+`action_audit`, `tax_gain`, `tax_setoff`, `tax_computation`. These hold the record
+of a decision taken or a return filed, and a bug that could amend them would
+rewrite the evidence rather than add to it.
+
+One column-level exception: `GRANT UPDATE (funds_credited_on) ON atom.lot_closure`.
+Settlement is *observed* when the ledger shows it and is not knowable when the lot
+closes (D-050/D-080), so that one field is filled in later — and only that one.
+
+**`run_log` is the only table the engine may `DELETE` from.** That is not a
+coincidence: it is the only table holding no decision record, which is precisely
+what makes it safe to purge on the archival schedule.
+
+**RLS is enabled on all 38 tables**, each with one policy — `atom_engine_all`,
+`USING (true)`. That policy isolates nothing today, and saying otherwise would be
+dishonest: v1 is admin-only (D-040). What it buys is that every table *already*
+denies by default to any role without a policy, so V2-5's investor-scoped read
+access becomes a policy to add rather than a migration across 38 tables that has
+to hope none was missed (Q-074).
+
+The `ENABLE ROW LEVEL SECURITY` and `CREATE POLICY` statements are generated from
+`pg_class` in a `DO` loop rather than written out 38 times, so a table added by a
+later migration cannot be omitted by a typo. `verify_constraints.sql` asserts the
+count anyway.
 
 **Two deliberate denormalisations**, both for auditability:
 
@@ -871,6 +983,32 @@ Both store *history that must not move*, which is the legitimate case for duplic
 | 6 | Relationship inside SEBI's family definition | `investor_relationship_ck` | D-092 |
 | 7 | Full PAN cannot be stored | `investor_pan_masked_ck` regex | D-128 |
 | 8 | Paper and live never mix | `execution_mode` on the account, inherited by FK | D-041 |
+| 9 | MARKET orders cannot be stored | `order_kind_ck` — the value is absent, not flagged | D-174 |
+| 10 | No margin, MTF, intraday or leverage | `order_product_ck`, single-valued `DELIVERY` | D-207 |
+| 11 | A harvest is never chained | `harvest_no_chaining_ck` — `CHECK (chain_depth = 1)` | D-193 |
+| 12 | One lot per fill | partial unique index on `order_fill_id` | D-166 |
+| 13 | A closed lot and an exhausted lot are one fact | `lot_status_matches_open_ck` | — |
+| 14 | A session row holds a path, never a token | `broker_session_is_ssm_path_ck` regex | D-079 |
+| 15 | A stated gain agrees with its own inputs | `tax_gain_amount_ck`, `tax_computation_total_ck` | — |
+| 16 | A gated candidate was not also acted on | `run_candidate_gate_ck` | D-052 |
+| 17 | A decision record cannot be amended | `UPDATE` revoked on nine tables | §12a |
+
+Numbers 1–8 were designed here. Numbers 9–17 were added while writing the
+migrations, each because a decision already taken had no mechanism behind it.
+
+### Proving they fire
+
+A constraint nobody has watched reject a row is a comment, not an invariant.
+[`verify_constraints.sql`](../../atom/persistence/migrations/verify_constraints.sql)
+runs 23 statements that must be rejected — each asserted against the *named*
+constraint, so a row refused for the wrong reason fails the test — and 21 positive
+assertions, including that a `FAILED` run does not consume the day's execute slot,
+that `v_position` reports ₹200.20 strategy cost against ₹85.00 actual cost on a
+harvest proxy, and that an over-exclusion surfaces as `-3` rather than `0`.
+
+It runs inside a transaction and rolls back, and it is pure SQL with no psql
+meta-commands, so the same file works through `make db-verify` and through a
+single-statement SQL API.
 
 ---
 
