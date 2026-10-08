@@ -111,9 +111,12 @@ class TotpBody(BaseModel):
     totp: str
 
 
-class ResetBody(BaseModel):
+class ResetVerifyBody(BaseModel):
     username: str
     totp: str
+
+
+class ResetPasswordBody(BaseModel):
     new_password: str
 
 
@@ -393,11 +396,13 @@ def create_app(engine: Engine, jobs: JobRunner) -> FastAPI:
             log.exception("could not store the console password")
             return None, _json({"error": "could not save the new password"}, 503)
 
-    # Forgot-password: the authenticator code stands in for the old password. It
-    # is the one thing the operator holds that an attacker with a stolen password
-    # does not, and it draws on the same throttle as sign-in.
-    @public.post("/auth/reset")
-    def reset_password(body: ResetBody, request: Request) -> Response:
+    # Forgot-password, in two screens. The first checks the username and the
+    # authenticator code and nothing else, so a wrong code costs a retype of the
+    # code only; the second sets the password. The code stands in for the old
+    # password: it is the one thing the operator holds that an attacker with a
+    # stolen password does not. Both screens draw on the sign-in throttle.
+    @public.post("/auth/reset/verify")
+    def reset_verify(body: ResetVerifyBody, request: Request) -> Response:
         client = request.client.host if request.client else "unknown"
         if (refused := locked_out(client)) is not None:
             return refused
@@ -405,22 +410,40 @@ def create_app(engine: Engine, jobs: JobRunner) -> FastAPI:
             ok = body.username == secret(paths.CONSOLE_USERNAME) and security.verify_totp(
                 secret(paths.CONSOLE_TOTP), body.totp
             )
+            key = secret(paths.CONSOLE_SESSION_KEY)
         except SecretNotFoundError:
             return not_configured()
         if not ok:
             throttle.fail(client)
-            return _json({"error": "reset failed"}, 401)
+            return _json({"error": "username or code is wrong"}, 401)
+        response = _json({"next": "password"})
+        set_cookie(
+            response,
+            security.RESET_COOKIE,
+            security.sign_reset(body.username, key),
+            security.RESET_SECONDS,
+        )
+        return response
+
+    @public.post("/auth/reset/password")
+    def reset_password(body: ResetPasswordBody, request: Request) -> Response:
+        try:
+            key = secret(paths.CONSOLE_SESSION_KEY)
+        except SecretNotFoundError:
+            return not_configured()
+        user = security.read_reset(request.cookies.get(security.RESET_COOKIE), key)
+        if user is None:
+            return _json({"error": "verification expired — start again", "restart": True}, 401)
         _key, failure = save_password(body.new_password)
         if failure is not None:
             return failure
+        client = request.client.host if request.client else "unknown"
         throttle.succeed(client)
         with transaction(engine.pool) as conn:
-            accounts.audit(
-                conn, actor=body.username, action="console_password_reset", entity="console"
-            )
+            accounts.audit(conn, actor=user, action="console_password_reset", entity="console")
         response = _json({"ok": True})
-        response.delete_cookie(security.SESSION_COOKIE, path="/")
-        response.delete_cookie(security.PENDING_COOKIE, path="/")
+        for name in (security.SESSION_COOKIE, security.PENDING_COOKIE, security.RESET_COOKIE):
+            response.delete_cookie(name, path="/")
         return response
 
     @api.post("/auth/change-password")

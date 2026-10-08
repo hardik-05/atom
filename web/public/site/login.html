@@ -61,10 +61,10 @@
         <button class="back" type="button" id="restart">Use a different account</button>
       </form>
 
-      <!-- Password reset: the authenticator code stands in for the old password -->
-      <form class="card" id="reset-step" novalidate hidden>
+      <!-- Reset, screen 1: username and authenticator code -->
+      <form class="card" id="reset-verify" novalidate hidden>
         <h1>Reset password</h1>
-        <p class="lead">Confirm with your authenticator, then choose a new password.</p>
+        <p class="lead">Enter your username and the code from Google Authenticator.</p>
         <div class="field">
           <label for="reset-username">Username</label>
           <input id="reset-username" name="username" autocomplete="username" required />
@@ -81,17 +81,25 @@
             required
           />
         </div>
+        <p class="error" role="alert"></p>
+        <button class="button" type="submit">Validate</button>
+        <button class="back" type="button" id="reset-cancel">Back to sign in</button>
+      </form>
+
+      <!-- Reset, screen 2: the new password -->
+      <form class="card" id="reset-new" novalidate hidden>
+        <h1>Choose a new password</h1>
+        <p class="lead">At least 12 characters.</p>
         <div class="field">
-          <label for="reset-new">New password (12+ characters)</label>
-          <input id="reset-new" name="new_password" type="password" autocomplete="new-password" required />
+          <label for="new-password">New password</label>
+          <input id="new-password" name="new_password" type="password" autocomplete="new-password" required />
         </div>
         <div class="field">
-          <label for="reset-again">New password again</label>
-          <input id="reset-again" name="again" type="password" autocomplete="new-password" required />
+          <label for="new-again">New password again</label>
+          <input id="new-again" name="again" type="password" autocomplete="new-password" required />
         </div>
         <p class="error" role="alert"></p>
-        <button class="button" type="submit">Reset password</button>
-        <button class="back" type="button" id="reset-cancel">Back to sign in</button>
+        <button class="button" type="submit">Done</button>
       </form>
     </main>
 

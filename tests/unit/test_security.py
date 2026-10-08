@@ -63,6 +63,17 @@ def test_a_pending_token_is_not_a_session_and_the_reverse() -> None:
     assert security.read_pending(session, key, now=1001) is None
 
 
+def test_a_reset_token_is_neither_a_session_nor_a_pending_login() -> None:
+    key = "k" * 40
+    reset = security.sign_reset("operator", key, now=1000)
+    assert security.read_reset(reset, key, now=1001) == "operator"
+    assert security.read_session(reset, key, now=1001) is None
+    assert security.read_pending(reset, key, now=1001) is None
+    assert (
+        security.read_reset(security.sign_session("operator", key, now=1000), key, now=1001) is None
+    )
+
+
 def test_a_pending_token_lasts_minutes_not_hours() -> None:
     pending = security.sign_pending("operator", "k" * 40, now=1000)
     late = 1000 + security.PENDING_SECONDS + 1

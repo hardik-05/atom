@@ -10,7 +10,8 @@
   var passwordStep = document.getElementById("password-step");
   var codeStep = document.getElementById("code-step");
   var codeInput = document.getElementById("code");
-  var resetStep = document.getElementById("reset-step");
+  var resetVerify = document.getElementById("reset-verify");
+  var resetNew = document.getElementById("reset-new");
   var resetCode = document.getElementById("reset-code");
 
   function post(path, body) {
@@ -46,7 +47,8 @@
 
   function showPasswordStep(message) {
     codeStep.hidden = true;
-    resetStep.hidden = true;
+    resetVerify.hidden = true;
+    resetNew.hidden = true;
     passwordStep.hidden = false;
     passwordStep.reset();
     errorOf(passwordStep).textContent = message || "";
@@ -129,12 +131,18 @@
       });
   });
 
-  document.getElementById("forgot").addEventListener("click", function () {
+  function showResetVerify(message) {
     passwordStep.hidden = true;
-    resetStep.hidden = false;
-    resetStep.reset();
-    errorOf(resetStep).textContent = "";
+    codeStep.hidden = true;
+    resetNew.hidden = true;
+    resetVerify.hidden = false;
+    resetVerify.reset();
+    errorOf(resetVerify).textContent = message || "";
     document.getElementById("reset-username").focus();
+  }
+
+  document.getElementById("forgot").addEventListener("click", function () {
+    showResetVerify("");
   });
 
   document.getElementById("reset-cancel").addEventListener("click", function () {
@@ -145,33 +153,63 @@
     resetCode.value = resetCode.value.replace(/\D/g, "").slice(0, 6);
   });
 
-  resetStep.addEventListener("submit", function (event) {
+  // Screen 1 checks only the username and the code. A wrong code clears the code
+  // and leaves the username; nothing else has been typed yet.
+  resetVerify.addEventListener("submit", function (event) {
     event.preventDefault();
-    var message = errorOf(resetStep);
-    var username = resetStep.username.value.trim();
-    var next = resetStep.new_password.value;
+    var message = errorOf(resetVerify);
+    var username = resetVerify.username.value.trim();
     if (!username || !/^\d{6}$/.test(resetCode.value)) {
       message.textContent = "Enter your username and the 6-digit code.";
       return;
     }
+    busy(resetVerify, true);
+    message.textContent = "";
+    post("reset/verify", { username: username, totp: resetCode.value })
+      .then(function (result) {
+        if (result.ok) {
+          resetVerify.hidden = true;
+          resetNew.hidden = false;
+          resetNew.reset();
+          errorOf(resetNew).textContent = "";
+          document.getElementById("new-password").focus();
+        } else {
+          resetCode.value = "";
+          message.textContent = failure(result);
+          resetCode.focus();
+        }
+      })
+      .catch(function () {
+        message.textContent = "Could not reach the server. Try again.";
+      })
+      .then(function () {
+        busy(resetVerify, false);
+      });
+  });
+
+  // Screen 2. The two passwords are checked here before anything is sent, and a
+  // server refusal leaves them in place to be corrected.
+  resetNew.addEventListener("submit", function (event) {
+    event.preventDefault();
+    var message = errorOf(resetNew);
+    var next = resetNew.new_password.value;
     if (next.length < 12) {
       message.textContent = "The new password must be at least 12 characters.";
       return;
     }
-    if (next !== resetStep.again.value) {
+    if (next !== resetNew.again.value) {
       message.textContent = "The two passwords do not match.";
       return;
     }
-    busy(resetStep, true);
+    busy(resetNew, true);
     message.textContent = "";
-    post("reset", { username: username, totp: resetCode.value, new_password: next })
+    post("reset/password", { new_password: next })
       .then(function (result) {
         if (result.ok) {
           showPasswordStep("Password changed. Sign in with the new password.");
+        } else if (result.data && result.data.restart) {
+          showResetVerify(result.data.error);
         } else {
-          resetStep.new_password.value = "";
-          resetStep.again.value = "";
-          resetCode.value = "";
           message.textContent = failure(result);
         }
       })
@@ -179,7 +217,7 @@
         message.textContent = "Could not reach the server. Try again.";
       })
       .then(function () {
-        busy(resetStep, false);
+        busy(resetNew, false);
       });
   });
 

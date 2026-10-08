@@ -432,14 +432,25 @@ def _code() -> str:
     return security.totp_at(TOTP, int(time.time()) // 30)
 
 
-def test_forgot_password_resets_with_the_authenticator_code(client) -> None:  # type: ignore[no-untyped-def]
-    c, _ = client
-    r = c.post(
-        "/api/auth/reset",
+NEW_PASSWORD = "a brand new password"
+
+
+def reset_verify(c: TestClient, *, username: str = "operator", totp: str | None = None):  # type: ignore[no-untyped-def]
+    return c.post(
+        "/api/auth/reset/verify",
         headers=HDR,
-        json={"username": "operator", "totp": _code(), "new_password": "a brand new password"},
+        json={"username": username, "totp": totp or _code()},
     )
-    assert r.status_code == 200, r.text
+
+
+def reset_password(c: TestClient, new_password: str = NEW_PASSWORD):  # type: ignore[no-untyped-def]
+    return c.post("/api/auth/reset/password", headers=HDR, json={"new_password": new_password})
+
+
+def test_forgot_password_is_two_screens(client) -> None:  # type: ignore[no-untyped-def]
+    c, _ = client
+    assert reset_verify(c).json() == {"next": "password"}
+    assert reset_password(c).status_code == 200
     old = c.post(
         "/api/auth/password",
         headers=HDR,
@@ -448,43 +459,51 @@ def test_forgot_password_resets_with_the_authenticator_code(client) -> None:  # 
     new = c.post(
         "/api/auth/password",
         headers=HDR,
-        json={"username": "operator", "password": "a brand new password"},
+        json={"username": "operator", "password": NEW_PASSWORD},
     )
     assert old.status_code == 401 and new.status_code == 200
 
 
-def test_a_reset_with_a_wrong_code_or_user_changes_nothing(client) -> None:  # type: ignore[no-untyped-def]
+def test_a_wrong_code_or_user_is_refused_at_the_first_screen(client) -> None:  # type: ignore[no-untyped-def]
     c, _ = client
-    for body in (
-        {"username": "operator", "totp": "000000"},
-        {"username": "someone", "totp": _code()},
-    ):
-        r = c.post(
-            "/api/auth/reset", headers=HDR, json={**body, "new_password": "a brand new password"}
-        )
-        assert r.status_code == 401 and r.json() == {"error": "reset failed"}
+    assert reset_verify(c, totp="000000").status_code == 401
+    assert reset_verify(c, username="someone").status_code == 401
+    # nothing was verified, so the second screen has no standing
+    r = reset_password(c)
+    assert r.status_code == 401 and r.json()["restart"] is True
     password_step(c)  # the old password still works
 
 
-def test_a_reset_refuses_a_short_password(client) -> None:  # type: ignore[no-untyped-def]
+def test_the_second_screen_refuses_a_short_password_and_keeps_the_proof(client) -> None:  # type: ignore[no-untyped-def]
     c, _ = client
-    r = c.post(
-        "/api/auth/reset",
-        headers=HDR,
-        json={"username": "operator", "totp": _code(), "new_password": "short"},
-    )
-    assert r.status_code == 422
+    reset_verify(c)
+    assert reset_password(c, "short").status_code == 422
+    assert reset_password(c).status_code == 200
+
+
+def test_a_reset_proof_is_not_a_session(client) -> None:  # type: ignore[no-untyped-def]
+    c, _ = client
+    reset_verify(c)
+    assert c.get("/api/overview").status_code == 401
+
+
+def test_a_reset_proof_works_once(client) -> None:  # type: ignore[no-untyped-def]
+    c, _ = client
+    reset_verify(c)
+    stale = dict(c.cookies)
+    assert reset_password(c).status_code == 200
+    c.cookies.clear()
+    for name, value in stale.items():
+        c.cookies.set(name, value)
+    assert reset_password(c, "yet another password").status_code == 401
 
 
 def test_a_reset_signs_out_a_signed_in_browser(client) -> None:  # type: ignore[no-untyped-def]
     c, _ = client
     login(c)
     stale = dict(c.cookies)
-    c.post(
-        "/api/auth/reset",
-        headers=HDR,
-        json={"username": "operator", "totp": _code(), "new_password": "a brand new password"},
-    )
+    reset_verify(c)
+    reset_password(c)
     c.cookies.clear()
     for name, value in stale.items():
         c.cookies.set(name, value)

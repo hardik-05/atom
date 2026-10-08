@@ -119,10 +119,12 @@ def _unb64(text: str) -> bytes:
 
 PENDING_COOKIE = "atom_pending"
 PENDING_SECONDS = 5 * 60
+RESET_COOKIE = "atom_reset"
+RESET_SECONDS = 10 * 60
 """Between the password and the authenticator code. Long enough to unlock a
 phone, short enough that a pending token found later is worthless."""
 
-_SESSION, _PENDING = "session", "pending"
+_SESSION, _PENDING, _RESET = "session", "pending", "reset"
 
 
 def _sign(username: str, key: str, purpose: str, ttl: int, now: float | None) -> str:
@@ -171,6 +173,16 @@ def sign_pending(username: str, key: str, *, now: float | None = None) -> str:
 
 def read_pending(token: str | None, key: str, *, now: float | None = None) -> str | None:
     return _read(token, key, _PENDING, now)
+
+
+def sign_reset(username: str, key: str, *, now: float | None = None) -> str:
+    """Proof that the username and authenticator code were just verified; good for
+    choosing a new password and nothing else."""
+    return _sign(username, key, _RESET, RESET_SECONDS, now)
+
+
+def read_reset(token: str | None, key: str, *, now: float | None = None) -> str | None:
+    return _read(token, key, _RESET, now)
 
 
 # ------------------------------------------------------------------- lockout
