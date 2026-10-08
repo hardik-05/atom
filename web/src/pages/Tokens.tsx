@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
-import { api, type Account, type Candle, type Funds, type HoldingRow, type InstrumentHit, type Quote } from "../api";
+import { accountLabel, api, type Account, type Candle, type Funds, type HoldingRow, type InstrumentHit, type Quote } from "../api";
 import { useApp } from "../context";
 import { inr, price, qty, when } from "../format";
 import { Badge, Button, Card, ErrorNote, Field, Loading, Mono, Notice, PageHeader, inputCls, statusTone, useAction, useAsync } from "../ui";
@@ -30,7 +30,7 @@ export function Tokens() {
       <>
         <PageHeader title="Broker tokens" />
         <Notice>
-          No trading account yet. Create one under <Link className="text-accent underline" to="/setup">Investors &amp; accounts</Link>.
+          No trading account yet. Create one under <Link className="text-accent underline" to="/accounts">Accounts</Link>.
         </Notice>
       </>
     );
@@ -60,7 +60,7 @@ export function Tokens() {
     <>
       <PageHeader
         title="Broker tokens"
-        subtitle={`${account.investor_name} · ${account.broker_name} · ${account.broker_client_code} — a fresh token each trading day; validity is tested, never assumed (D-170).`}
+        subtitle={`${accountLabel(account)} — a fresh token each trading day; validity is tested, never assumed (D-170).`}
       />
 
       {secretsMissing.length > 0 && (

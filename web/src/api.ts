@@ -80,6 +80,12 @@ export interface Account {
   secrets_present?: Record<string, boolean>;
 }
 
+// Two accounts for one investor and broker differ only in mode, so the mode is part
+// of every place an account is named.
+export function accountLabel(a: Pick<Account, "investor_name" | "broker_name" | "broker_client_code" | "execution_mode">): string {
+  return `${a.investor_name} · ${a.broker_name} · ${a.broker_client_code} · ${a.execution_mode === "LIVE" ? "LIVE" : "PAPER"}`;
+}
+
 export interface Universe {
   universe_id: number;
   name: string;

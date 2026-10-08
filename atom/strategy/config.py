@@ -232,10 +232,14 @@ def resolve(
     priority: tuple[str, ...] = ()
     if priority_raw is not None:
         priority = tuple(p.strip() for p in priority_raw.split(",") if p.strip())
-        if sorted(priority) != sorted(universe_categories) or len(set(priority)) != len(priority):
+        # A subset is valid: a day's run may trade one category, two or all three.
+        # What the list must not do is name a category twice, or one the universe
+        # does not have, or be empty (nothing would ever be funded).
+        unknown = [p for p in priority if p not in universe_categories]
+        if not priority or unknown or len(set(priority)) != len(priority):
             invalid.append(
-                f"category_priority must be a permutation of {list(universe_categories)}, "
-                f"got {list(priority)}"
+                f"category_priority must list at least one category, each at most once, "
+                f"from {list(universe_categories)}; got {list(priority)}"
             )
     if cap is not None and cap <= 0:
         invalid.append(f"daily_spend_cap_inr must be positive, got {cap}")

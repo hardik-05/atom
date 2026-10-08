@@ -203,7 +203,7 @@ Rejected at write time, not discovered at run time:
 | `nav_premium_tolerance_pct` | ≥ 0 (negative would demand a discount — use 0) |
 | `volume_threshold_units` | ≥ 0 |
 | `min_correlation` | between −1 and 1 |
-| `category_priority` | a permutation of the three categories, no duplicates, no omissions |
+| `category_priority` | one or more of the categories, in funding order; no duplicates and no unknown names (a run may trade any subset) |
 
 A config that fails validation cannot be saved, and a run refuses to start on an unresolvable
 key rather than falling back to a literal.

@@ -9,7 +9,7 @@ export function Overview() {
   if (!data) return <ErrorNote error={error} />;
   const valid = data.accounts.filter((a) => a.session?.status === "VALID").length;
   const setupSteps = [
-    { done: data.accounts.length > 0, label: "Create the investor and trading account", to: "/setup" },
+    { done: data.accounts.length > 0, label: "Create the investor and trading account", to: "/accounts" },
     { done: data.instrument_counts.instruments > 0, label: "Import the ETF reference data", to: "/universe" },
     { done: data.instrument_counts.mapped > 0, label: "Sync the Upstox instrument master", to: "/universe" },
     { done: valid > 0, label: "Generate today's broker token", to: "/tokens" },

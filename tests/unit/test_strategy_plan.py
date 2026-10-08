@@ -92,15 +92,29 @@ def test_explicit_null_switches_buying_off_for_that_category_only() -> None:
 
 
 def test_validation_rules_are_enforced_at_resolve_time() -> None:
-    values = full_values(category_priority="EQUITY", budget_buffer_pct="120")
+    values = full_values(category_priority="EQUITY,EQUITY", budget_buffer_pct="120")
     values.update(category_values("EQUITY", depth_levels="0", average_method="MODE"))
     with pytest.raises(ConfigError) as caught:
         resolve(universe_categories=CATS, account_values=values, global_values=GLOBALS)
     message = str(caught.value)
-    assert "permutation" in message
+    assert "category_priority must list at least one category" in message
     assert "budget_buffer_pct" in message
     assert "depth_levels [EQUITY]" in message
     assert "MEAN or MEDIAN" in message
+
+
+def test_category_priority_may_name_any_subset_of_the_categories() -> None:
+    for priority in ("EQUITY", "COMMODITY", "COMMODITY,EQUITY", "EQUITY,COMMODITY"):
+        values = full_values(category_priority=priority)
+        cfg = resolve(universe_categories=CATS, account_values=values, global_values=GLOBALS)
+        assert cfg.category_priority == tuple(priority.split(","))
+
+
+def test_category_priority_refuses_empty_unknown_and_repeated() -> None:
+    for priority in ("", "EQUITY,FOREX", "EQUITY,EQUITY"):
+        values = full_values(category_priority=priority)
+        with pytest.raises(ConfigError):
+            resolve(universe_categories=CATS, account_values=values, global_values=GLOBALS)
 
 
 def test_snapshot_keeps_decimals_exact() -> None:

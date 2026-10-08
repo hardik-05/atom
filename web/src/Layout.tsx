@@ -1,11 +1,12 @@
 import { useState } from "react";
 import { NavLink, Outlet } from "react-router-dom";
-import { api } from "./api";
+import { accountLabel, api } from "./api";
 import { ChangePassword } from "./ChangePassword";
 import { useApp, useTheme, type Theme } from "./context";
 import { Badge, statusTone } from "./ui";
 
 const NAV: { to: string; label: string; icon: string }[] = [
+  { to: "/accounts", label: "Accounts", icon: "▣" },
   { to: "/", label: "Overview", icon: "◎" },
   { to: "/tokens", label: "Broker tokens", icon: "⚿" },
   { to: "/data", label: "Data lab", icon: "◫" },
@@ -13,7 +14,6 @@ const NAV: { to: string; label: string; icon: string }[] = [
   { to: "/config", label: "Configuration", icon: "⚙" },
   { to: "/runs", label: "Execute", icon: "▶" },
   { to: "/positions", label: "Positions", icon: "▤" },
-  { to: "/setup", label: "Investors & accounts", icon: "＋" },
   { to: "/audit", label: "Audit log", icon: "☰" },
 ];
 
@@ -81,7 +81,7 @@ export function Layout({ onSignOut }: { onSignOut: () => void }) {
               {app.accounts.length === 0 && <option value="">— none yet —</option>}
               {app.accounts.map((a) => (
                 <option key={a.trading_account_id} value={a.trading_account_id}>
-                  {a.investor_name} · {a.broker_name} · {a.broker_client_code}
+                  {accountLabel(a)}
                 </option>
               ))}
             </select>

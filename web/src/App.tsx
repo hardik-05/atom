@@ -11,7 +11,7 @@ import { UniversePage } from "./pages/Universe";
 import { ConfigPage } from "./pages/Config";
 import { RunsPage, RunDetailPage } from "./pages/Runs";
 import { PositionsPage } from "./pages/Positions";
-import { SetupPage } from "./pages/Setup";
+import { AccountsPage } from "./pages/Accounts";
 import { AuditPage } from "./pages/Audit";
 
 interface Me {
@@ -67,7 +67,8 @@ export function App() {
             <Route path="runs" element={<RunsPage />} />
             <Route path="runs/:runId" element={<RunDetailPage />} />
             <Route path="positions" element={<PositionsPage />} />
-            <Route path="setup" element={<SetupPage />} />
+            <Route path="accounts" element={<AccountsPage />} />
+            <Route path="setup" element={<Navigate to="/accounts" replace />} />
             <Route path="audit" element={<AuditPage />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Route>
