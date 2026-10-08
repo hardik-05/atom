@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import gzip
 import json
+import threading
 from collections.abc import Callable, Iterable, Sequence
 from datetime import UTC, date, datetime
 from decimal import Decimal
@@ -107,6 +108,9 @@ def classify(response: httpx.Response, *, context: str) -> BrokerError:
     return UnknownError(text, broker="UPSTOX", raw=raw)
 
 
+READS_PER_SECOND = 8.0
+
+
 class UpstoxAdapter:
     capabilities: BrokerCapabilities = UPSTOX
 
@@ -125,21 +129,29 @@ class UpstoxAdapter:
         self._default_proxy = default_proxy_url
         self._transport = transport
         self._clients: dict[int | None, BrokerHttpClient] = {}
+        # An adapter lives for one unit of work, and the history sync calls it from
+        # several threads: the client map and the token cache are shared.
+        self._lock = threading.Lock()
+        self._tokens: dict[str, str] = {}
 
     # ---------------------------------------------------------------- plumbing
     def _client(self, account: AccountRef | None) -> BrokerHttpClient:
         key = None if account is None else account.trading_account_id
-        client = self._clients.get(key)
-        if client is None:
-            client = BrokerHttpClient(
-                base_url=API_BASE,
-                proxy_url=(account.proxy_url if account else None) or self._default_proxy,
-                broker_code="UPSTOX",
-                orders_per_second=UPSTOX.orders_per_second,
-                transport=self._transport,
-            )
-            self._clients[key] = client
-        return client
+        with self._lock:
+            client = self._clients.get(key)
+            if client is None:
+                client = BrokerHttpClient(
+                    base_url=API_BASE,
+                    proxy_url=(account.proxy_url if account else None) or self._default_proxy,
+                    broker_code="UPSTOX",
+                    orders_per_second=UPSTOX.orders_per_second,
+                    # Upstox allows 50 requests a second but only 500 a minute; 8 a
+                    # second keeps a long sync just under the minute ceiling.
+                    reads_per_second=READS_PER_SECOND,
+                    transport=self._transport,
+                )
+                self._clients[key] = client
+            return client
 
     def close(self) -> None:
         for client in self._clients.values():
@@ -152,7 +164,14 @@ class UpstoxAdapter:
                 "no Upstox token for today — generate one from the Tokens screen",
                 broker="UPSTOX",
             )
-        return self._secrets.get(account.secret_ref)
+        # One SSM read per adapter, not per request: a history sync makes hundreds
+        # of calls, and the token cannot change under an adapter that lives for one
+        # unit of work.
+        cached = self._tokens.get(account.secret_ref)
+        if cached is None:
+            cached = self._secrets.get(account.secret_ref)
+            self._tokens[account.secret_ref] = cached
+        return cached
 
     def _headers(self, account: AccountRef) -> dict[str, str]:
         return {

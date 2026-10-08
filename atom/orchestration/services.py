@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import contextlib
 import csv
+import time
 from collections.abc import Callable
 from dataclasses import asdict
 from datetime import date, timedelta
@@ -20,6 +21,7 @@ from typing import Any, TypeVar
 from atom.adapters import amfi
 from atom.domain.errors import AuthError, ValidationError
 from atom.infra.clock import today_ist
+from atom.orchestration import history
 from atom.orchestration.engine import Engine, close_adapter
 from atom.orchestration.jobs import Job
 from atom.persistence.db import transaction
@@ -31,6 +33,9 @@ BUCKETS_CSV = DATA_DIR / "buckets" / "etf-tradable-buckets-2026-09-17.csv"
 ETF_UNIVERSE = "NSE ETFs"
 ETF_CATEGORIES = ["EQUITY", "COMMODITY", "GLOBAL"]
 T = TypeVar("T")
+
+# How far back the automatic sync after a token refresh reaches.
+AUTO_HISTORY_DAYS = 400
 
 ASSET_CLASS = {"EQUITY": "EQUITY", "COMMODITY": "COMMODITY", "GLOBAL INDICES": "GLOBAL"}
 
@@ -290,38 +295,96 @@ class DataService:
 
         return self._with_adapter(account_id, run)
 
-    def sync_history(
-        self, job: Job, *, account_id: int, universe_id: int, days: int
-    ) -> dict[str, Any]:
-        """Bring every member's daily bars up to yesterday. Incremental: an
-        instrument already covered is fetched only from its last bar onward."""
-        today = today_ist()
+    def all_universe_ids(self) -> list[int]:
         with transaction(self.engine.pool) as conn:
-            acct = accounts.get_account(conn, account_id)
-            members = universes.current_members(conn, universe_id, broker_id=acct["broker_id"])
-            have = market.coverage(conn, [int(m["instrument_id"]) for m in members])
-        job.update(total=len(members), message="fetching daily bars")
-        stored, failed, skipped = 0, [], []
-        for index, m in enumerate(members, start=1):
-            job.update(progress=index, message=f"{m['symbol']} ({index}/{len(members)})")
-            if not m["broker_token"]:
-                skipped.append(m["symbol"])
-                continue
-            covered = have.get(int(m["instrument_id"]))
-            start = today - timedelta(days=days)
-            if covered and covered["last_date"] and covered["first_date"] <= start:
-                start = covered["last_date"] + timedelta(days=1)
-            end = today - timedelta(days=1)
-            if start > end:
-                continue
-            try:
-                self.candles(account_id, int(m["instrument_id"]), start, end, store=True)
-                stored += 1
-            except Exception as exc:
-                failed.append({"symbol": m["symbol"], "error": str(exc)[:200]})
-                if isinstance(exc, AuthError):
-                    break  # every later call would fail the same way
-        return {"instruments_updated": stored, "failed": failed, "unmapped": skipped}
+            return [int(u["universe_id"]) for u in universes.list_universes(conn)]
+
+    def sync_history(
+        self, job: Job, *, account_id: int, universe_ids: list[int], days: int
+    ) -> dict[str, Any]:
+        """Bring every member's daily bars up to yesterday, fetching only the gaps.
+
+        Ask for ``days`` of history and an instrument that already holds all but
+        the last two costs one request for those two. Requests run in parallel
+        behind the adapter's rate limiter; the bars land in a few bulk statements.
+        Today's bar is not fetched — the run takes its own price when it executes.
+        """
+        started = time.monotonic()
+        today = today_ist()
+        end = today - timedelta(days=1)
+        wanted_from = today - timedelta(days=days)
+
+        def run(conn: Any, adapter: Any, ref: Any, acct: dict[str, Any]) -> dict[str, Any]:
+            source = acct["broker_code"]
+            members: dict[int, dict[str, Any]] = {}
+            for universe_id in universe_ids:
+                for m in universes.current_members(conn, universe_id, broker_id=acct["broker_id"]):
+                    members.setdefault(int(m["instrument_id"]), m)
+            ids = list(members)
+            have = market.coverage(conn, ids)
+            state = market.sync_state(conn, ids, source=source)
+
+            tasks: list[history.Task] = []
+            unmapped: list[str] = []
+            current = 0
+            for iid, m in members.items():
+                if not m["broker_token"]:
+                    unmapped.append(m["symbol"])
+                    continue
+                cov, st = have.get(iid) or {}, state.get(iid) or {}
+                ranges = history.plan_ranges(
+                    wanted_from=wanted_from,
+                    end=end,
+                    first_bar=cov.get("first_date"),
+                    last_bar=cov.get("last_date"),
+                    requested_from=st.get("requested_from"),
+                    synced_through=st.get("synced_through"),
+                )
+                if ranges:
+                    tasks.append(history.Task(iid, m["symbol"], m["broker_token"], ranges))
+                else:
+                    current += 1
+
+            job.update(total=len(tasks), progress=0, message=f"fetching {len(tasks)} instruments")
+            done = 0
+
+            def progress(outcome: history.Outcome) -> None:
+                nonlocal done
+                done += 1
+                job.update(progress=done, message=f"{outcome.task.symbol} ({done}/{len(tasks)})")
+
+            outcomes = history.fetch_all(
+                lambda token, start, stop: adapter.fetch_daily_candles(ref, token, start, stop),
+                tasks,
+                on_done=progress,
+            )
+
+            job.update(message="writing to the database")
+            good = [o for o in outcomes if o.error is None and not o.skipped]
+            written = market.upsert_candles_bulk(
+                conn,
+                bars=[(o.task.instrument_id, bar) for o in good for bar in o.bars],
+                source=source,
+            )
+            market.record_sync_state(
+                conn, [(o.task.instrument_id, wanted_from, end) for o in good], source=source
+            )
+            failed = [
+                {"symbol": o.task.symbol, "error": o.error} for o in outcomes if o.error is not None
+            ]
+            return {
+                "window": [wanted_from.isoformat(), end.isoformat()],
+                "instruments": len(members),
+                "already_current": current,
+                "instruments_fetched": len(good),
+                "api_calls": history.summary(outcomes)["calls"],
+                "bars_written": written,
+                "failed": failed,
+                "unmapped": unmapped,
+                "seconds": round(time.monotonic() - started, 1),
+            }
+
+        return self._with_adapter(account_id, run)
 
     def sync_nav(self, job: Job) -> dict[str, Any]:
         job.update(message="downloading AMFI NAV file")

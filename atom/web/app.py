@@ -43,6 +43,7 @@ from atom.orchestration.engine import Engine
 from atom.orchestration.jobs import Job, JobRunner
 from atom.orchestration.runner import RunService
 from atom.orchestration.services import (
+    AUTO_HISTORY_DAYS,
     ConfigService,
     DataService,
     ReferenceService,
@@ -621,7 +622,25 @@ def create_app(engine: Engine, jobs: JobRunner) -> FastAPI:
 
     @api.post("/accounts/{account_id}/token/exchange")
     def exchange(account_id: int, body: CodeBody, user: str = Depends(current_user)) -> Response:
-        return _json(tokens.exchange(account_id, body.code, actor=user))
+        result = tokens.exchange(account_id, body.code, actor=user)
+        if result.get("ok"):
+            # A fresh token is the moment the broker will answer, so it is the moment
+            # to top up history: every universe, only the days not yet held.
+            try:
+                job = jobs.submit(
+                    "history_sync",
+                    lambda j: data.sync_history(
+                        j,
+                        account_id=account_id,
+                        universe_ids=data.all_universe_ids(),
+                        days=AUTO_HISTORY_DAYS,
+                    ),
+                    key=f"history:{account_id}",
+                )
+                result["history_job"] = job.job_id
+            except Exception:
+                log.exception("could not queue the history sync after the token refresh")
+        return _json(result)
 
     @api.post("/accounts/{account_id}/token/probe")
     def probe(account_id: int) -> Response:
@@ -686,8 +705,9 @@ def create_app(engine: Engine, jobs: JobRunner) -> FastAPI:
         job = jobs.submit(
             "history_sync",
             lambda j: data.sync_history(
-                j, account_id=body.account_id, universe_id=body.universe_id, days=body.days
+                j, account_id=body.account_id, universe_ids=[body.universe_id], days=body.days
             ),
+            key=f"history:{body.account_id}",
         )
         return _json(_job(job), 202)
 

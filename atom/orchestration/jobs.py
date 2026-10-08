@@ -36,6 +36,7 @@ class Job:
     error: str | None = None
     created_at: datetime = field(default_factory=now_utc)
     finished_at: datetime | None = None
+    key: str | None = None
 
     def update(
         self, *, progress: int | None = None, total: int | None = None, message: str | None = None
@@ -55,9 +56,18 @@ class JobRunner:
         self._lock = threading.Lock()
         self._max_kept = max_kept
 
-    def submit(self, kind: str, fn: Callable[[Job], dict[str, Any]]) -> Job:
-        job = Job(job_id=uuid.uuid4().hex[:12], kind=kind)
+    def submit(
+        self, kind: str, fn: Callable[[Job], dict[str, Any]], *, key: str | None = None
+    ) -> Job:
+        """Queue ``fn``. With a ``key``, a job under that key that has not finished
+        is returned instead of queueing a second one — a token refresh and a click
+        on "sync" in the same minute are one piece of work."""
+        job = Job(job_id=uuid.uuid4().hex[:12], kind=kind, key=key)
         with self._lock:
+            if key is not None:
+                for other in self._jobs.values():
+                    if other.key == key and other.status in ("QUEUED", "RUNNING"):
+                        return other
             self._jobs[job.job_id] = job
             self._trim()
 

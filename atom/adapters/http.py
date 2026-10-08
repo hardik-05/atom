@@ -97,12 +97,15 @@ class BrokerHttpClient:
         proxy_url: str | None,
         broker_code: str,
         orders_per_second: int = 2,
+        reads_per_second: float = 5.0,
         timeout: float = DEFAULT_TIMEOUT,
         transport: httpx.BaseTransport | None = None,
     ) -> None:
         self.broker_code = broker_code
         self._order_bucket = TokenBucket(rate_per_second=float(orders_per_second), capacity=2.0)
-        self._read_bucket = TokenBucket(rate_per_second=5.0, capacity=5.0)
+        self._read_bucket = TokenBucket(
+            rate_per_second=reads_per_second, capacity=max(5.0, reads_per_second * 2)
+        )
         self._client = httpx.Client(
             base_url=base_url,
             proxy=proxy_url,
