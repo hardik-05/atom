@@ -1,5 +1,7 @@
+import { useState } from "react";
 import { NavLink, Outlet } from "react-router-dom";
 import { api } from "./api";
+import { ChangePassword } from "./ChangePassword";
 import { useApp, useTheme, type Theme } from "./context";
 import { Badge, statusTone } from "./ui";
 
@@ -36,6 +38,7 @@ export function Layout({ onSignOut }: { onSignOut: () => void }) {
   const app = useApp();
   const [theme, setTheme] = useTheme();
   const session = app.account?.session;
+  const [changing, setChanging] = useState(false);
 
   return (
     <div className="flex h-full">
@@ -117,6 +120,12 @@ export function Layout({ onSignOut }: { onSignOut: () => void }) {
             </select>
             <button
               className="rounded-md px-2 py-1 text-[12px] text-muted hover:bg-accent-soft hover:text-ink"
+              onClick={() => setChanging(true)}
+            >
+              Change password
+            </button>
+            <button
+              className="rounded-md px-2 py-1 text-[12px] text-muted hover:bg-accent-soft hover:text-ink"
               onClick={async () => {
                 await api.post("/auth/logout").catch(() => undefined);
                 onSignOut();
@@ -152,6 +161,7 @@ export function Layout({ onSignOut }: { onSignOut: () => void }) {
           </div>
         </main>
       </div>
+      <ChangePassword open={changing} onClose={() => setChanging(false)} />
     </div>
   );
 }

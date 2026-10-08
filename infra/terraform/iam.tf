@@ -49,6 +49,33 @@ resource "aws_iam_role_policy" "engine" {
         ]
       },
       {
+        # The console's own password reset. Exactly two parameters: the password
+        # hash, and the session key (rotated on a reset so every signed-in browser
+        # is signed out). Not the username, not the authenticator secret, and not
+        # anything under /atom/brokers.
+        Sid    = "WriteConsolePasswordOnly"
+        Effect = "Allow"
+        Action = ["ssm:PutParameter"]
+        Resource = [
+          "arn:aws:ssm:${var.region}:${data.aws_caller_identity.current.account_id}:parameter/atom/console/password_hash",
+          "arn:aws:ssm:${var.region}:${data.aws_caller_identity.current.account_id}:parameter/atom/console/session_key"
+        ]
+      },
+      {
+        Sid      = "EncryptConsolePassword"
+        Effect   = "Allow"
+        Action   = ["kms:Encrypt", "kms:GenerateDataKey"]
+        Resource = [aws_kms_key.atom.arn]
+        Condition = {
+          StringEquals = {
+            "kms:EncryptionContext:PARAMETER_ARN" = [
+              "arn:aws:ssm:${var.region}:${data.aws_caller_identity.current.account_id}:parameter/atom/console/password_hash",
+              "arn:aws:ssm:${var.region}:${data.aws_caller_identity.current.account_id}:parameter/atom/console/session_key"
+            ]
+          }
+        }
+      },
+      {
         Sid      = "DecryptWithAtomKey"
         Effect   = "Allow"
         Action   = ["kms:Decrypt", "kms:DescribeKey"]

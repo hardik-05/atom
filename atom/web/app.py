@@ -13,6 +13,8 @@ response here is built by ``_json`` instead.
 from __future__ import annotations
 
 import json
+import logging
+import secrets as pysecrets
 import time
 from collections.abc import Awaitable, Callable
 from datetime import date, datetime, timedelta
@@ -49,6 +51,8 @@ from atom.orchestration.services import (
 from atom.persistence.db import QueryShapeError, transaction
 from atom.persistence.repositories import accounts, instruments, orders, runs, universes
 from atom.web import security
+
+log = logging.getLogger(__name__)
 
 CSRF_HEADER = "x-atom-request"
 DEPOSITORY = ("DDPI", "POA", "EDIS", "UNKNOWN")
@@ -105,6 +109,17 @@ class PasswordBody(BaseModel):
 
 class TotpBody(BaseModel):
     totp: str
+
+
+class ResetBody(BaseModel):
+    username: str
+    totp: str
+    new_password: str
+
+
+class ChangePasswordBody(BaseModel):
+    current_password: str
+    new_password: str
 
 
 class InvestorBody(BaseModel):
@@ -351,6 +366,93 @@ def create_app(engine: Engine, jobs: JobRunner) -> FastAPI:
         response.delete_cookie(security.PENDING_COOKIE, path="/")
         with transaction(engine.pool) as conn:
             accounts.audit(conn, actor=user, action="console_login", entity="console")
+        return response
+
+    def store_password(new_password: str) -> str:
+        """Save the new hash and a fresh session key; return the key.
+
+        The new key signs every browser out, which is what a reset is for if the
+        old password was the problem. The cache is updated here so this process
+        agrees with SSM at once rather than after the five-minute cache expires.
+        """
+        new_hash = security.hash_password(new_password)  # ValueError if too short
+        new_key = pysecrets.token_urlsafe(48)
+        engine.secrets.put(paths.CONSOLE_PASSWORD_HASH, new_hash)
+        engine.secrets.put(paths.CONSOLE_SESSION_KEY, new_key)
+        now = time.monotonic()
+        key_cache[paths.CONSOLE_PASSWORD_HASH] = (now, new_hash)
+        key_cache[paths.CONSOLE_SESSION_KEY] = (now, new_key)
+        return new_key
+
+    def save_password(new_password: str) -> tuple[str | None, Response | None]:
+        try:
+            return store_password(new_password), None
+        except ValueError as exc:
+            return None, _json({"error": str(exc)}, 422)
+        except Exception:
+            log.exception("could not store the console password")
+            return None, _json({"error": "could not save the new password"}, 503)
+
+    # Forgot-password: the authenticator code stands in for the old password. It
+    # is the one thing the operator holds that an attacker with a stolen password
+    # does not, and it draws on the same throttle as sign-in.
+    @public.post("/auth/reset")
+    def reset_password(body: ResetBody, request: Request) -> Response:
+        client = request.client.host if request.client else "unknown"
+        if (refused := locked_out(client)) is not None:
+            return refused
+        try:
+            ok = body.username == secret(paths.CONSOLE_USERNAME) and security.verify_totp(
+                secret(paths.CONSOLE_TOTP), body.totp
+            )
+        except SecretNotFoundError:
+            return not_configured()
+        if not ok:
+            throttle.fail(client)
+            return _json({"error": "reset failed"}, 401)
+        _key, failure = save_password(body.new_password)
+        if failure is not None:
+            return failure
+        throttle.succeed(client)
+        with transaction(engine.pool) as conn:
+            accounts.audit(
+                conn, actor=body.username, action="console_password_reset", entity="console"
+            )
+        response = _json({"ok": True})
+        response.delete_cookie(security.SESSION_COOKIE, path="/")
+        response.delete_cookie(security.PENDING_COOKIE, path="/")
+        return response
+
+    @api.post("/auth/change-password")
+    def change_password(
+        body: ChangePasswordBody, request: Request, user: str = Depends(current_user)
+    ) -> Response:
+        client = request.client.host if request.client else "unknown"
+        if (refused := locked_out(client)) is not None:
+            return refused
+        try:
+            ok = security.verify_password(
+                body.current_password, secret(paths.CONSOLE_PASSWORD_HASH)
+            )
+        except SecretNotFoundError:
+            return not_configured()
+        if not ok:
+            throttle.fail(client)
+            return _json({"error": "current password is wrong"}, 403)
+        key, failure = save_password(body.new_password)
+        if failure is not None or key is None:
+            return failure or _json({"error": "could not save the new password"}, 503)
+        throttle.succeed(client)
+        with transaction(engine.pool) as conn:
+            accounts.audit(conn, actor=user, action="console_password_change", entity="console")
+        # Every other browser is signed out by the new key; this one stays in.
+        response = _json({"ok": True})
+        set_cookie(
+            response,
+            security.SESSION_COOKIE,
+            security.sign_session(user, key),
+            security.SESSION_SECONDS,
+        )
         return response
 
     @public.post("/auth/logout")

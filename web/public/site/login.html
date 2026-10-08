@@ -36,6 +36,7 @@
         </div>
         <p class="error" role="alert"></p>
         <button class="button" type="submit">Continue</button>
+        <button class="back" type="button" id="forgot">Forgot password?</button>
       </form>
 
       <!-- Step 2: the authenticator code -->
@@ -58,6 +59,39 @@
         <p class="error" role="alert"></p>
         <button class="button" type="submit">Verify</button>
         <button class="back" type="button" id="restart">Use a different account</button>
+      </form>
+
+      <!-- Password reset: the authenticator code stands in for the old password -->
+      <form class="card" id="reset-step" novalidate hidden>
+        <h1>Reset password</h1>
+        <p class="lead">Confirm with your authenticator, then choose a new password.</p>
+        <div class="field">
+          <label for="reset-username">Username</label>
+          <input id="reset-username" name="username" autocomplete="username" required />
+        </div>
+        <div class="field">
+          <label for="reset-code">Authenticator code</label>
+          <input
+            id="reset-code"
+            name="code"
+            class="code"
+            inputmode="numeric"
+            autocomplete="one-time-code"
+            maxlength="6"
+            required
+          />
+        </div>
+        <div class="field">
+          <label for="reset-new">New password (12+ characters)</label>
+          <input id="reset-new" name="new_password" type="password" autocomplete="new-password" required />
+        </div>
+        <div class="field">
+          <label for="reset-again">New password again</label>
+          <input id="reset-again" name="again" type="password" autocomplete="new-password" required />
+        </div>
+        <p class="error" role="alert"></p>
+        <button class="button" type="submit">Reset password</button>
+        <button class="back" type="button" id="reset-cancel">Back to sign in</button>
       </form>
     </main>
 

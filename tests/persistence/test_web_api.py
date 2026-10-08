@@ -426,3 +426,104 @@ def test_an_unconfigured_console_leaks_nothing_to_anonymous_callers(migrated_dsn
         assert login.status_code == 503 and "console-setup" in login.json()["error"]
         assert "/atom/" not in login.text
     jobs.shutdown()
+
+
+def _code() -> str:
+    return security.totp_at(TOTP, int(time.time()) // 30)
+
+
+def test_forgot_password_resets_with_the_authenticator_code(client) -> None:  # type: ignore[no-untyped-def]
+    c, _ = client
+    r = c.post(
+        "/api/auth/reset",
+        headers=HDR,
+        json={"username": "operator", "totp": _code(), "new_password": "a brand new password"},
+    )
+    assert r.status_code == 200, r.text
+    old = c.post(
+        "/api/auth/password",
+        headers=HDR,
+        json={"username": "operator", "password": "a long enough password"},
+    )
+    new = c.post(
+        "/api/auth/password",
+        headers=HDR,
+        json={"username": "operator", "password": "a brand new password"},
+    )
+    assert old.status_code == 401 and new.status_code == 200
+
+
+def test_a_reset_with_a_wrong_code_or_user_changes_nothing(client) -> None:  # type: ignore[no-untyped-def]
+    c, _ = client
+    for body in (
+        {"username": "operator", "totp": "000000"},
+        {"username": "someone", "totp": _code()},
+    ):
+        r = c.post(
+            "/api/auth/reset", headers=HDR, json={**body, "new_password": "a brand new password"}
+        )
+        assert r.status_code == 401 and r.json() == {"error": "reset failed"}
+    password_step(c)  # the old password still works
+
+
+def test_a_reset_refuses_a_short_password(client) -> None:  # type: ignore[no-untyped-def]
+    c, _ = client
+    r = c.post(
+        "/api/auth/reset",
+        headers=HDR,
+        json={"username": "operator", "totp": _code(), "new_password": "short"},
+    )
+    assert r.status_code == 422
+
+
+def test_a_reset_signs_out_a_signed_in_browser(client) -> None:  # type: ignore[no-untyped-def]
+    c, _ = client
+    login(c)
+    stale = dict(c.cookies)
+    c.post(
+        "/api/auth/reset",
+        headers=HDR,
+        json={"username": "operator", "totp": _code(), "new_password": "a brand new password"},
+    )
+    c.cookies.clear()
+    for name, value in stale.items():
+        c.cookies.set(name, value)
+    assert c.get("/api/overview").status_code == 401
+
+
+def test_change_password_needs_the_current_one_and_keeps_this_browser_in(client) -> None:  # type: ignore[no-untyped-def]
+    c, _ = client
+    login(c)
+    wrong = c.post(
+        "/api/auth/change-password",
+        headers=HDR,
+        json={"current_password": "not it at all!!", "new_password": "a brand new password"},
+    )
+    assert wrong.status_code == 403
+    ok = c.post(
+        "/api/auth/change-password",
+        headers=HDR,
+        json={
+            "current_password": "a long enough password",
+            "new_password": "a brand new password",
+        },
+    )
+    assert ok.status_code == 200
+    assert c.get("/api/overview").status_code == 200
+    c.cookies.clear()
+    r = c.post(
+        "/api/auth/password",
+        headers=HDR,
+        json={"username": "operator", "password": "a brand new password"},
+    )
+    assert r.status_code == 200
+
+
+def test_change_password_requires_a_session(client) -> None:  # type: ignore[no-untyped-def]
+    c, _ = client
+    r = c.post(
+        "/api/auth/change-password",
+        headers=HDR,
+        json={"current_password": "x", "new_password": "a brand new password"},
+    )
+    assert r.status_code == 401
