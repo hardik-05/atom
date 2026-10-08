@@ -21,8 +21,7 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Depends, FastAPI, Request
-from fastapi.responses import FileResponse, JSONResponse, Response
-from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response
 from pydantic import BaseModel, Field
 
 from atom.domain.errors import (
@@ -99,9 +98,12 @@ def _job(job: Job) -> dict[str, Any]:
 # ------------------------------------------------------------------ bodies
 
 
-class LoginBody(BaseModel):
+class PasswordBody(BaseModel):
     username: str
     password: str
+
+
+class TotpBody(BaseModel):
     totp: str
 
 
@@ -232,17 +234,20 @@ def create_app(engine: Engine, jobs: JobRunner) -> FastAPI:
         return _json({"error": str(exc), "type": "LookupError"}, 409)
 
     # ---------------------------------------------------------------- auth
-    def current_user(request: Request) -> str:
+    def session_user(request: Request) -> str | None:
         cookie = request.cookies.get(security.SESSION_COOKIE)
         if not cookie:
             # Decided before any secret is read: an anonymous request must get a
             # plain 401, never an error that reveals how the console is set up.
-            raise _UnauthorisedError()
+            return None
         try:
             key = secret(paths.CONSOLE_SESSION_KEY)
         except SecretNotFoundError:
-            raise _UnauthorisedError() from None
-        user = security.read_session(cookie, key)
+            return None
+        return security.read_session(cookie, key)
+
+    def current_user(request: Request) -> str:
+        user = session_user(request)
         if user is None:
             raise _UnauthorisedError()
         marker = engine.settings.activity_marker
@@ -267,49 +272,92 @@ def create_app(engine: Engine, jobs: JobRunner) -> FastAPI:
     def health() -> Response:
         return _json({"ok": True, "env": engine.settings.env, "today": today_ist()})
 
-    @public.post("/auth/login")
-    def login(body: LoginBody, request: Request) -> Response:
-        client = request.client.host if request.client else "unknown"
-        wait = throttle.locked_for(client)
-        if wait:
-            return _json({"error": f"too many attempts; try again in {wait // 60 + 1} min"}, 429)
-        try:
-            ok = (
-                body.username == secret(paths.CONSOLE_USERNAME)
-                and security.verify_password(body.password, secret(paths.CONSOLE_PASSWORD_HASH))
-                and security.verify_totp(secret(paths.CONSOLE_TOTP), body.totp)
-            )
-        except SecretNotFoundError:
-            # The operator needs to know the console is not set up; the SSM path
-            # and which part is missing stay in the engine's own log.
-            message = (
-                "console sign-in is not configured yet — run: python -m atom.cli console-setup"
-            )
-            return _json({"error": message}, 503)
-        if not ok:
-            throttle.fail(client)
-            # One message for every failure: which factor was wrong is information
-            # an attacker would like to have and the operator does not need.
-            return _json({"error": "sign-in failed"}, 401)
-        throttle.succeed(client)
-        response = _json({"user": body.username})
+    def not_configured() -> Response:
+        # The operator needs to know the console is not set up; the SSM path and
+        # which part is missing stay in the engine's own log.
+        message = "console sign-in is not configured yet — run: python -m atom.cli console-setup"
+        return _json({"error": message}, 503)
+
+    def set_cookie(response: Response, name: str, value: str, max_age: int) -> None:
         response.set_cookie(
-            security.SESSION_COOKIE,
-            security.sign_session(body.username, secret(paths.CONSOLE_SESSION_KEY)),
-            max_age=security.SESSION_SECONDS,
+            name,
+            value,
+            max_age=max_age,
             httponly=True,
             secure=engine.settings.cookie_secure,
             samesite="strict",
             path="/",
         )
+
+    def locked_out(client: str) -> Response | None:
+        wait = throttle.locked_for(client)
+        if wait:
+            return _json({"error": f"too many attempts; try again in {wait // 60 + 1} min"}, 429)
+        return None
+
+    # The throttle counts failures at BOTH steps against one budget, so the code
+    # step cannot be guessed at freely by someone who already has the password.
+    @public.post("/auth/password")
+    def login_password(body: PasswordBody, request: Request) -> Response:
+        client = request.client.host if request.client else "unknown"
+        if (refused := locked_out(client)) is not None:
+            return refused
+        try:
+            ok = body.username == secret(paths.CONSOLE_USERNAME) and security.verify_password(
+                body.password, secret(paths.CONSOLE_PASSWORD_HASH)
+            )
+            key = secret(paths.CONSOLE_SESSION_KEY)
+        except SecretNotFoundError:
+            return not_configured()
+        if not ok:
+            throttle.fail(client)
+            # One message for either field: which one was wrong is information an
+            # attacker would like to have and the operator does not need.
+            return _json({"error": "sign-in failed"}, 401)
+        response = _json({"next": "totp"})
+        set_cookie(
+            response,
+            security.PENDING_COOKIE,
+            security.sign_pending(body.username, key),
+            security.PENDING_SECONDS,
+        )
+        return response
+
+    @public.post("/auth/totp")
+    def login_totp(body: TotpBody, request: Request) -> Response:
+        client = request.client.host if request.client else "unknown"
+        if (refused := locked_out(client)) is not None:
+            return refused
+        try:
+            key = secret(paths.CONSOLE_SESSION_KEY)
+            user = security.read_pending(request.cookies.get(security.PENDING_COOKIE), key)
+            if user is None:
+                # No password step, or it expired: start again, and say so.
+                return _json({"error": "sign-in expired — start again", "restart": True}, 401)
+            ok = security.verify_totp(secret(paths.CONSOLE_TOTP), body.totp)
+        except SecretNotFoundError:
+            return not_configured()
+        if not ok:
+            throttle.fail(client)
+            return _json({"error": "sign-in failed"}, 401)
+        throttle.succeed(client)
+        response = _json({"user": user})
+        set_cookie(
+            response,
+            security.SESSION_COOKIE,
+            security.sign_session(user, key),
+            security.SESSION_SECONDS,
+        )
+        response.delete_cookie(security.PENDING_COOKIE, path="/")
         with transaction(engine.pool) as conn:
-            accounts.audit(conn, actor=body.username, action="console_login", entity="console")
+            accounts.audit(conn, actor=user, action="console_login", entity="console")
         return response
 
     @public.post("/auth/logout")
     def logout() -> Response:
         response = _json({"ok": True})
         response.delete_cookie(security.SESSION_COOKIE, path="/")
+        response.delete_cookie(security.PENDING_COOKIE, path="/")
         return response
 
     @api.get("/auth/me")
@@ -633,7 +681,7 @@ def create_app(engine: Engine, jobs: JobRunner) -> FastAPI:
     # ------------------------------------------------------------------ SPA
     static = engine.settings.static_dir
     if static is not None and (static / "index.html").exists():
-        _mount_spa(app, static)
+        _mount_spa(app, static, signed_in=lambda request: session_user(request) is not None)
     return app
 
 
@@ -641,19 +689,48 @@ class _UnauthorisedError(Exception):
     pass
 
 
-def _mount_spa(app: FastAPI, static: Path) -> None:
-    assets = static / "assets"
-    if assets.exists():
-        app.mount("/assets", StaticFiles(directory=assets), name="assets")
+UPSTOX_CALLBACK = "brokers/upstox/callback"
+
+
+def _mount_spa(app: FastAPI, static: Path, *, signed_in: Callable[[Request], bool]) -> None:
+    """Two sites in one origin, chosen by the session cookie.
+
+    Anonymous visitors get ``site/`` only: a placeholder home page and the sign-in
+    page, plain HTML that says nothing about what runs behind it. The console's
+    shell and bundle are served only with a valid session, because a bundle served
+    to anyone is the whole console described to anyone who reads it.
+    """
     index = static / "index.html"
+    site = static / "site"
+    root = static.resolve()
+    no_cache = {"Cache-Control": "no-cache"}
 
     @app.get("/{path:path}", include_in_schema=False)
-    def spa(path: str) -> Response:
+    def spa(path: str, request: Request) -> Response:
         if path.startswith("api/"):
             return _json({"error": "not found"}, 404)
         candidate = (static / path).resolve()
-        if path and candidate.is_file() and static.resolve() in candidate.parents:
+        is_file = bool(path) and candidate.is_file() and root in candidate.parents
+
+        if is_file and (root / "site") in candidate.parents:
             return FileResponse(candidate)
-        # Every client-side route — including /brokers/upstox/callback, where the
-        # broker sends the operator back with a code — is served the app shell.
-        return FileResponse(index, headers={"Cache-Control": "no-cache"})
+        if path == UPSTOX_CALLBACK:
+            # The broker's redirect is a cross-site navigation, which a SameSite=
+            # Strict cookie does not ride on — so this one route cannot be decided
+            # by the session. The shell alone reveals nothing; the bundle it loads
+            # is a same-site request, which carries the cookie and is checked.
+            return FileResponse(index, headers=no_cache)
+
+        if not signed_in(request):
+            if path == "login":
+                return FileResponse(site / "login.html", headers=no_cache)
+            if is_file:
+                return _json({"error": "not found"}, 404)
+            return FileResponse(site / "home.html", headers=no_cache)
+
+        if path == "login":
+            return RedirectResponse("/", status_code=303)
+        if is_file:
+            return FileResponse(candidate)
+        # Every client-side route is served the app shell.
+        return FileResponse(index, headers=no_cache)

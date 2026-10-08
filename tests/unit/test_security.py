@@ -53,6 +53,22 @@ def test_session_rejects_tampering_and_expiry() -> None:
     assert security.read_session(token, "k" * 40, now=1000 + security.SESSION_SECONDS + 1) is None
 
 
+def test_a_pending_token_is_not_a_session_and_the_reverse() -> None:
+    """Both are signed with the same key; only the purpose tells them apart."""
+    key = "k" * 40
+    pending = security.sign_pending("operator", key, now=1000)
+    session = security.sign_session("operator", key, now=1000)
+    assert security.read_pending(pending, key, now=1001) == "operator"
+    assert security.read_session(pending, key, now=1001) is None
+    assert security.read_pending(session, key, now=1001) is None
+
+
+def test_a_pending_token_lasts_minutes_not_hours() -> None:
+    pending = security.sign_pending("operator", "k" * 40, now=1000)
+    late = 1000 + security.PENDING_SECONDS + 1
+    assert security.read_pending(pending, "k" * 40, now=late) is None
+
+
 def test_lockout_after_five_failures() -> None:
     throttle = security.LoginThrottle()
     for _ in range(5):

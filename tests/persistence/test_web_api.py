@@ -6,6 +6,7 @@ import time
 from collections.abc import Iterator
 from datetime import timedelta
 from decimal import Decimal
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
@@ -31,6 +32,27 @@ TOTP = security.new_totp_secret()
 
 @pytest.fixture
 def client(migrated_dsn: str) -> Iterator[tuple[TestClient, FakeBrokerState]]:
+    yield from _serve(migrated_dsn, static_dir=None)
+
+
+@pytest.fixture
+def site(migrated_dsn: str, tmp_path: Path) -> Iterator[TestClient]:
+    """The app serving a stand-in web/dist: the console shell and bundle, and the
+    public placeholder pages under site/."""
+    (tmp_path / "index.html").write_text("CONSOLE SHELL")
+    (tmp_path / "assets").mkdir()
+    (tmp_path / "assets" / "app.js").write_text("CONSOLE BUNDLE")
+    (tmp_path / "site").mkdir()
+    (tmp_path / "site" / "home.html").write_text("PLACEHOLDER HOME")
+    (tmp_path / "site" / "login.html").write_text("SIGN IN")
+    (tmp_path / "site" / "site.css").write_text("body{}")
+    for c, _ in _serve(migrated_dsn, static_dir=tmp_path):
+        yield c
+
+
+def _serve(
+    migrated_dsn: str, *, static_dir: Path | None
+) -> Iterator[tuple[TestClient, FakeBrokerState]]:
     apply_all(migrated_dsn, drop_schema_first=True)
     pool = make_pool(
         DbSettings(
@@ -57,7 +79,7 @@ def client(migrated_dsn: str) -> Iterator[tuple[TestClient, FakeBrokerState]]:
         region="ap-south-1",
         public_base_url="http://testserver",
         secret_backend="memory",
-        static_dir=None,
+        static_dir=static_dir,
         activity_marker=None,
         cookie_secure=False,
     )
@@ -71,13 +93,19 @@ def client(migrated_dsn: str) -> Iterator[tuple[TestClient, FakeBrokerState]]:
     pool.close()
 
 
-def login(c: TestClient) -> None:
-    code = security.totp_at(TOTP, int(time.time()) // 30)
+def password_step(c: TestClient) -> None:
     r = c.post(
-        "/api/auth/login",
+        "/api/auth/password",
         headers=HDR,
-        json={"username": "operator", "password": "a long enough password", "totp": code},
+        json={"username": "operator", "password": "a long enough password"},
     )
+    assert r.status_code == 200 and r.json() == {"next": "totp"}, r.text
+
+
+def login(c: TestClient) -> None:
+    password_step(c)
+    code = security.totp_at(TOTP, int(time.time()) // 30)
+    r = c.post("/api/auth/totp", headers=HDR, json={"totp": code})
     assert r.status_code == 200, r.text
 
 
@@ -90,24 +118,88 @@ def test_everything_but_health_requires_a_session(client) -> None:  # type: igno
 
 def test_a_mutation_without_the_request_header_is_refused(client) -> None:  # type: ignore[no-untyped-def]
     c, _ = client
-    r = c.post("/api/auth/login", json={"username": "x", "password": "y", "totp": "000000"})
+    r = c.post("/api/auth/password", json={"username": "x", "password": "y"})
     assert r.status_code == 403
 
 
 def test_one_message_for_every_login_failure(client) -> None:  # type: ignore[no-untyped-def]
     c, _ = client
-    bad_totp = c.post(
-        "/api/auth/login",
-        headers=HDR,
-        json={"username": "operator", "password": "a long enough password", "totp": "000000"},
-    )
     bad_user = c.post(
-        "/api/auth/login",
-        headers=HDR,
-        json={"username": "someone", "password": "x", "totp": "000000"},
+        "/api/auth/password", headers=HDR, json={"username": "someone", "password": "x"}
     )
-    assert bad_totp.status_code == bad_user.status_code == 401
-    assert bad_totp.json() == bad_user.json()
+    bad_password = c.post(
+        "/api/auth/password", headers=HDR, json={"username": "operator", "password": "x"}
+    )
+    password_step(c)
+    bad_totp = c.post("/api/auth/totp", headers=HDR, json={"totp": "000000"})
+    assert bad_user.status_code == bad_password.status_code == bad_totp.status_code == 401
+    assert bad_user.json() == bad_password.json() == bad_totp.json()
+
+
+def test_the_password_alone_is_not_a_session(client) -> None:  # type: ignore[no-untyped-def]
+    c, _ = client
+    password_step(c)
+    assert c.get("/api/overview").status_code == 401
+    assert c.get("/api/auth/me").status_code == 401
+
+
+def test_the_code_step_needs_the_password_step_first(client) -> None:  # type: ignore[no-untyped-def]
+    c, _ = client
+    code = security.totp_at(TOTP, int(time.time()) // 30)
+    r = c.post("/api/auth/totp", headers=HDR, json={"totp": code})
+    assert r.status_code == 401 and r.json()["restart"] is True
+    assert c.get("/api/overview").status_code == 401
+
+
+def test_both_steps_share_one_lockout(client) -> None:  # type: ignore[no-untyped-def]
+    c, _ = client
+    password_step(c)
+    for _ in range(security.MAX_FAILURES):
+        c.post("/api/auth/totp", headers=HDR, json={"totp": "000000"})
+    r = c.post(
+        "/api/auth/password",
+        headers=HDR,
+        json={"username": "operator", "password": "a long enough password"},
+    )
+    assert r.status_code == 429
+
+
+def test_signing_in_clears_the_pending_cookie(client) -> None:  # type: ignore[no-untyped-def]
+    c, _ = client
+    login(c)
+    assert security.PENDING_COOKIE not in c.cookies
+    assert c.get("/api/auth/me").json()["user"] == "operator"
+
+
+def test_an_anonymous_visitor_sees_only_the_placeholder(site: TestClient) -> None:
+    assert site.get("/").text == "PLACEHOLDER HOME"
+    assert site.get("/overview").text == "PLACEHOLDER HOME"
+    assert site.get("/login").text == "SIGN IN"
+    assert site.get("/site/site.css").status_code == 200
+    assert site.get("/assets/app.js").status_code == 404
+    assert site.get("/index.html").status_code == 404
+    assert site.get("/api/nothing").status_code == 404
+
+
+def test_the_password_alone_does_not_open_the_console(site: TestClient) -> None:
+    password_step(site)
+    assert site.get("/").text == "PLACEHOLDER HOME"
+    assert site.get("/assets/app.js").status_code == 404
+
+
+def test_a_signed_in_operator_lands_on_the_console(site: TestClient) -> None:
+    login(site)
+    assert site.get("/").text == "CONSOLE SHELL"
+    assert site.get("/overview").text == "CONSOLE SHELL"
+    assert site.get("/assets/app.js").text == "CONSOLE BUNDLE"
+    r = site.get("/login", follow_redirects=False)
+    assert r.status_code == 303 and r.headers["location"] == "/"
+
+
+def test_the_broker_callback_gets_the_shell_without_a_cookie(site: TestClient) -> None:
+    """The broker's redirect is cross-site, so a SameSite=Strict cookie is absent."""
+    assert site.get("/brokers/upstox/callback?code=x").text == "CONSOLE SHELL"
+    assert site.get("/assets/app.js").status_code == 404
 
 
 def test_the_whole_console_flow(client) -> None:  # type: ignore[no-untyped-def]
@@ -330,11 +422,7 @@ def test_an_unconfigured_console_leaks_nothing_to_anonymous_callers(migrated_dsn
         assert "/atom/" not in anonymous.text
         forged = c.get("/api/overview", cookies={"atom_session": "a.b"})
         assert forged.status_code == 401
-        login = c.post(
-            "/api/auth/login",
-            headers=HDR,
-            json={"username": "x", "password": "y", "totp": "000000"},
-        )
+        login = c.post("/api/auth/password", headers=HDR, json={"username": "x", "password": "y"})
         assert login.status_code == 503 and "console-setup" in login.json()["error"]
         assert "/atom/" not in login.text
     jobs.shutdown()

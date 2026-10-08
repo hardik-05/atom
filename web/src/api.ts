@@ -34,7 +34,7 @@ async function request<T>(method: Method, path: string, body?: unknown): Promise
   const text = await response.text();
   const data = text ? JSON.parse(text) : null;
   if (!response.ok) {
-    if (response.status === 401 && !path.startsWith("/auth/login")) onUnauthorised();
+    if (response.status === 401 && !path.startsWith("/auth/")) onUnauthorised();
     const message =
       (data && (data.error || (Array.isArray(data.detail) ? data.detail.map((d: { msg: string }) => d.msg).join("; ") : data.detail))) ||
       `${response.status} ${response.statusText}`;

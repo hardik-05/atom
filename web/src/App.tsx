@@ -4,7 +4,6 @@ import { api, setUnauthorisedHandler } from "./api";
 import { AppProvider } from "./context";
 import { Layout } from "./Layout";
 import { Loading } from "./ui";
-import { Login } from "./pages/Login";
 import { Overview } from "./pages/Overview";
 import { Tokens, UpstoxCallback } from "./pages/Tokens";
 import { DataLab } from "./pages/DataLab";
@@ -19,6 +18,14 @@ interface Me {
   user: string;
   env: string;
   upstox_redirect_uri: string;
+}
+
+// Signing in happens on the public site (web/public/site), not in this app: the
+// server serves this bundle only to a signed-in browser, so a missing or expired
+// session leaves for "/", which then serves the placeholder home page. Vite has no
+// such server, so in development the sign-in page is reached directly.
+function leave() {
+  window.location.replace(import.meta.env.DEV ? "/site/login.html" : "/");
 }
 
 export function App() {
@@ -36,38 +43,36 @@ export function App() {
   }, []);
 
   useEffect(() => {
-    setUnauthorisedHandler(() => setMe(null));
+    setUnauthorisedHandler(leave);
     void load();
   }, [load]);
 
-  if (!checked) return <Loading />;
+  useEffect(() => {
+    if (checked && me === null) leave();
+  }, [checked, me]);
+
+  if (!checked || me === null) return <Loading />;
 
   return (
     <BrowserRouter>
-      {me === null ? (
+      <AppProvider user={me.user} env={me.env} redirectUri={me.upstox_redirect_uri}>
         <Routes>
-          <Route path="*" element={<Login onSignedIn={load} />} />
+          <Route element={<Layout onSignOut={leave} />}>
+            <Route index element={<Overview />} />
+            <Route path="tokens" element={<Tokens />} />
+            <Route path="brokers/upstox/callback" element={<UpstoxCallback />} />
+            <Route path="data" element={<DataLab />} />
+            <Route path="universe" element={<UniversePage />} />
+            <Route path="config" element={<ConfigPage />} />
+            <Route path="runs" element={<RunsPage />} />
+            <Route path="runs/:runId" element={<RunDetailPage />} />
+            <Route path="positions" element={<PositionsPage />} />
+            <Route path="setup" element={<SetupPage />} />
+            <Route path="audit" element={<AuditPage />} />
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Route>
         </Routes>
-      ) : (
-        <AppProvider user={me.user} env={me.env} redirectUri={me.upstox_redirect_uri}>
-          <Routes>
-            <Route element={<Layout onSignOut={() => setMe(null)} />}>
-              <Route index element={<Overview />} />
-              <Route path="tokens" element={<Tokens />} />
-              <Route path="brokers/upstox/callback" element={<UpstoxCallback />} />
-              <Route path="data" element={<DataLab />} />
-              <Route path="universe" element={<UniversePage />} />
-              <Route path="config" element={<ConfigPage />} />
-              <Route path="runs" element={<RunsPage />} />
-              <Route path="runs/:runId" element={<RunDetailPage />} />
-              <Route path="positions" element={<PositionsPage />} />
-              <Route path="setup" element={<SetupPage />} />
-              <Route path="audit" element={<AuditPage />} />
-              <Route path="*" element={<Navigate to="/" replace />} />
-            </Route>
-          </Routes>
-        </AppProvider>
-      )}
+      </AppProvider>
     </BrowserRouter>
   );
 }

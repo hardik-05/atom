@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en-IN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="robots" content="noindex, nofollow" />
+    <meta name="referrer" content="no-referrer" />
+    <title>Sign in · MetaAlgo Capital</title>
+    <link rel="icon" href="/site/mark.svg" type="image/svg+xml" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="/site/site.css" />
+    <script src="/site/login.js" defer></script>
+  </head>
+  <body>
+    <header class="top">
+      <a class="brand" href="/">
+        <img src="/site/mark.svg" alt="" width="26" height="26" />
+        MetaAlgo Capital
+      </a>
+    </header>
+
+    <main>
+      <!-- Step 1: username and password -->
+      <form class="card" id="password-step" novalidate>
+        <h1>Sign in</h1>
+        <p class="lead">Enter your username and password.</p>
+        <div class="field">
+          <label for="username">Username</label>
+          <input id="username" name="username" autocomplete="username" required autofocus />
+        </div>
+        <div class="field">
+          <label for="password">Password</label>
+          <input id="password" name="password" type="password" autocomplete="current-password" required />
+        </div>
+        <p class="error" role="alert"></p>
+        <button class="button" type="submit">Continue</button>
+      </form>
+
+      <!-- Step 2: the authenticator code -->
+      <form class="card" id="code-step" novalidate hidden>
+        <h1>Verify it's you</h1>
+        <p class="lead">Enter the 6-digit code from Google Authenticator.</p>
+        <div class="field">
+          <label for="code">Authenticator code</label>
+          <input
+            id="code"
+            name="code"
+            class="code"
+            inputmode="numeric"
+            autocomplete="one-time-code"
+            pattern="[0-9]{6}"
+            maxlength="6"
+            required
+          />
+        </div>
+        <p class="error" role="alert"></p>
+        <button class="button" type="submit">Verify</button>
+        <button class="back" type="button" id="restart">Use a different account</button>
+      </form>
+    </main>
+
+    <footer>Five failed attempts lock sign-in for fifteen minutes.</footer>
+  </body>
+</html>

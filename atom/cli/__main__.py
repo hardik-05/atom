@@ -94,6 +94,19 @@ def _scram_verifier(password: str, *, iterations: int = 4096) -> str:
     )
 
 
+def _new_login_dsn(args: argparse.Namespace, role: str) -> tuple[str, str]:
+    """A fresh password's DSN, and the SCRAM verifier to set on the role."""
+    from urllib.parse import quote
+
+    password = pysecrets.token_urlsafe(32)
+    user = f"{role}.{args.project_ref}" if args.pooler else role
+    dsn = (
+        f"postgresql://{quote(user, safe='')}:{quote(password, safe='')}@{args.host}:{args.port}/"
+        f"postgres?sslmode=require"
+    )
+    return dsn, _scram_verifier(password)
+
+
 def db_login(args: argparse.Namespace) -> None:
     """Generate a login password, store the DSN in SSM, print the SQL to run.
 
@@ -101,16 +114,8 @@ def db_login(args: argparse.Namespace) -> None:
     in this process and in the SSM parameter, and nowhere else.
     """
     store = _store(args)
-    password = pysecrets.token_urlsafe(32)
-    from urllib.parse import quote
-
-    user = f"{args.role}.{args.project_ref}" if args.pooler else args.role
-    dsn = (
-        f"postgresql://{quote(user, safe='')}:{quote(password, safe='')}@{args.host}:{args.port}/"
-        f"postgres?sslmode=require"
-    )
+    dsn, verifier = _new_login_dsn(args, args.role)
     store.put(paths.DATABASE_DSN, dsn)
-    verifier = _scram_verifier(password)
     print("DSN stored at", paths.DATABASE_DSN)
     print("\nRun this SQL once (it contains a verifier, not the password):\n")
     print(
@@ -120,6 +125,29 @@ def db_login(args: argparse.Namespace) -> None:
     )
     print(f"ALTER ROLE {args.role} WITH LOGIN PASSWORD '{verifier}';")
     print(f"ALTER ROLE {args.role} SET search_path = atom;")
+
+
+KEEPALIVE_DSN = "/atom/keepalive/db_dsn"
+"""Read by the atom-keepalive Lambda and nothing else (infra/terraform/keepalive.tf)."""
+
+
+def db_keepalive_login(args: argparse.Namespace) -> None:
+    """The keep-alive Lambda's login: LOGIN and nothing else.
+
+    No membership in atom_engine and no grants, so the credential that wakes the
+    database every day can read none of it. Same verifier-only SQL as db-login.
+    """
+    store = _store(args)
+    dsn, verifier = _new_login_dsn(args, "atom_keepalive")
+    store.put(KEEPALIVE_DSN, dsn)
+    print("DSN stored at", KEEPALIVE_DSN)
+    print("\nRun this SQL once (it contains a verifier, not the password):\n")
+    print(
+        "DO $$ BEGIN\n"
+        "  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'atom_keepalive') THEN\n"
+        "    CREATE ROLE atom_keepalive LOGIN NOINHERIT CONNECTION LIMIT 2;\n  END IF;\nEND $$;"
+    )
+    print(f"ALTER ROLE atom_keepalive WITH LOGIN PASSWORD '{verifier}';")
 
 
 def migrate(args: argparse.Namespace) -> None:
@@ -167,6 +195,12 @@ def main() -> None:
         help="connecting through Supavisor, which wants user.project_ref",
     )
 
+    k = sub.add_parser("db-keepalive-login", help="create the keep-alive Lambda's database login")
+    k.add_argument("--host", required=True)
+    k.add_argument("--port", type=int, default=5432)
+    k.add_argument("--project-ref", default="njcnttyafolmuqwgixfq")
+    k.add_argument("--pooler", action="store_true", help="as for db-login")
+
     m = sub.add_parser("migrate", help="apply migrations to the configured database")
     m.add_argument("--dsn-from-ssm", action="store_true")
 
@@ -177,6 +211,7 @@ def main() -> None:
         "console-setup": console_setup,
         "broker-secret": broker_secret,
         "db-login": db_login,
+        "db-keepalive-login": db_keepalive_login,
         "migrate": migrate,
         "cloudflare-token": cloudflare_token,
     }[args.command](args)

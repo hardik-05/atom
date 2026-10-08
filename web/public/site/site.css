@@ -1,0 +1,179 @@
+/* The public placeholder and sign-in pages. Plain CSS, no build step: these
+   pages are served to anyone, so they carry nothing from the console. */
+
+:root {
+  --bg: #f7f7f5;
+  --surface: #ffffff;
+  --ink: #16181d;
+  --muted: #5f6672;
+  --line: #e3e4e8;
+  --accent: #0e7490;
+  --accent-ink: #ffffff;
+  --danger: #b42318;
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0b0f17;
+    --surface: #111827;
+    --ink: #e8eef7;
+    --muted: #94a3b8;
+    --line: #1f2937;
+    --accent: #22b8cf;
+    --accent-ink: #062029;
+    --danger: #f97066;
+    color-scheme: dark;
+  }
+}
+
+* { box-sizing: border-box; }
+
+html, body { height: 100%; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font: 15px/1.6 Inter, system-ui, -apple-system, "Segoe UI", sans-serif;
+  display: flex;
+  flex-direction: column;
+}
+
+a { color: inherit; }
+
+.top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20px 24px;
+  max-width: 1080px;
+  width: 100%;
+  margin: 0 auto;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-decoration: none;
+}
+
+.brand svg { width: 26px; height: 26px; }
+
+.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 1px solid var(--accent);
+  background: var(--accent);
+  color: var(--accent-ink);
+  border-radius: 8px;
+  padding: 9px 18px;
+  font: inherit;
+  font-weight: 600;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.button:disabled { opacity: 0.6; cursor: progress; }
+
+.button.ghost {
+  background: transparent;
+  color: var(--ink);
+  border-color: var(--line);
+}
+
+main {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px 16px 48px;
+}
+
+.hero { max-width: 620px; text-align: center; }
+
+.hero h1 {
+  font-size: clamp(30px, 6vw, 46px);
+  line-height: 1.15;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  margin: 0 0 16px;
+}
+
+.hero p { color: var(--muted); margin: 0 auto; max-width: 480px; }
+
+.rule { width: 48px; height: 3px; background: var(--accent); border-radius: 2px; margin: 28px auto; }
+
+footer {
+  text-align: center;
+  color: var(--muted);
+  font-size: 12px;
+  padding: 20px 16px 28px;
+}
+
+/* sign-in */
+
+.card {
+  width: 100%;
+  max-width: 380px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 28px 24px;
+}
+
+.card h1 { font-size: 20px; margin: 0 0 4px; }
+
+.card .lead { color: var(--muted); font-size: 13px; margin: 0 0 22px; }
+
+label { display: block; font-size: 13px; font-weight: 500; margin-bottom: 6px; }
+
+.field { margin-bottom: 16px; }
+
+input {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--ink);
+  font: inherit;
+}
+
+input:focus { outline: 2px solid var(--accent); outline-offset: 1px; border-color: transparent; }
+
+input.code {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 22px;
+  letter-spacing: 0.5em;
+  text-align: center;
+}
+
+.card .button { width: 100%; margin-top: 4px; }
+
+.error {
+  color: var(--danger);
+  font-size: 13px;
+  min-height: 20px;
+  margin: 0 0 8px;
+}
+
+.back {
+  display: block;
+  margin-top: 16px;
+  text-align: center;
+  font: inherit;
+  font-size: 13px;
+  color: var(--muted);
+  background: none;
+  border: 0;
+  width: 100%;
+  cursor: pointer;
+}
+
+[hidden] { display: none !important; }

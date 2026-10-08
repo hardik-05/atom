@@ -1,5 +1,8 @@
 """Console authentication: one operator, a password and a TOTP code (D-040).
 
+Two steps: the password earns a short-lived *pending* token, and only the
+authenticator code turns that into a session.
+
 Standard library only — scrypt, HMAC and base32 are all in ``hashlib``,
 ``hmac`` and ``base64`` — so the login path adds no dependency that could be
 compromised upstream.
@@ -114,17 +117,24 @@ def _unb64(text: str) -> bytes:
     return base64.urlsafe_b64decode(text + "=" * (-len(text) % 4))
 
 
-def sign_session(username: str, key: str, *, now: float | None = None) -> str:
+PENDING_COOKIE = "atom_pending"
+PENDING_SECONDS = 5 * 60
+"""Between the password and the authenticator code. Long enough to unlock a
+phone, short enough that a pending token found later is worthless."""
+
+_SESSION, _PENDING = "session", "pending"
+
+
+def _sign(username: str, key: str, purpose: str, ttl: int, now: float | None) -> str:
     issued = int(time.time() if now is None else now)
     payload = _b64(
-        json.dumps({"u": username, "iat": issued, "exp": issued + SESSION_SECONDS}).encode()
+        json.dumps({"u": username, "p": purpose, "iat": issued, "exp": issued + ttl}).encode()
     )
     signature = _b64(hmac.new(key.encode(), payload.encode(), hashlib.sha256).digest())
     return f"{payload}.{signature}"
 
 
-def read_session(token: str | None, key: str, *, now: float | None = None) -> str | None:
-    """The username, or ``None`` for anything missing, tampered with or expired."""
+def _read(token: str | None, key: str, purpose: str, now: float | None) -> str | None:
     if not token or "." not in token:
         return None
     payload, signature = token.rsplit(".", 1)
@@ -135,10 +145,32 @@ def read_session(token: str | None, key: str, *, now: float | None = None) -> st
         data = json.loads(_unb64(payload))
     except (ValueError, json.JSONDecodeError):
         return None
+    # Both tokens are signed with the same key, so the purpose is what stops a
+    # password-only pending token from being presented as a session.
+    if data.get("p") != purpose:
+        return None
     if int(data.get("exp", 0)) < (time.time() if now is None else now):
         return None
     user = data.get("u")
     return str(user) if user else None
+
+
+def sign_session(username: str, key: str, *, now: float | None = None) -> str:
+    return _sign(username, key, _SESSION, SESSION_SECONDS, now)
+
+
+def read_session(token: str | None, key: str, *, now: float | None = None) -> str | None:
+    """The username, or ``None`` for anything missing, tampered with or expired."""
+    return _read(token, key, _SESSION, now)
+
+
+def sign_pending(username: str, key: str, *, now: float | None = None) -> str:
+    """Proof that the password step passed — and nothing more."""
+    return _sign(username, key, _PENDING, PENDING_SECONDS, now)
+
+
+def read_pending(token: str | None, key: str, *, now: float | None = None) -> str | None:
+    return _read(token, key, _PENDING, now)
 
 
 # ------------------------------------------------------------------- lockout

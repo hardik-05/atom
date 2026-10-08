@@ -48,3 +48,6 @@ frontend/dist/
 
 # TypeScript incremental build cache.
 *.tsbuildinfo
+
+# Lambda package built at plan time
+infra/terraform/.build/

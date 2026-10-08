@@ -1,0 +1,5 @@
+# Pure Python on purpose: the package is built on whatever machine runs
+# Terraform (Windows today) and runs on Lambda's Linux. A compiled driver such as
+# psycopg[binary] would need a cross-platform build; pg8000 and its dependencies
+# (scramp, asn1crypto, python-dateutil, six) are all py3-none-any wheels.
+pg8000==1.31.5
