@@ -320,6 +320,13 @@ def test_plan_release_settle_over_http(client, migrated_dsn: str) -> None:  # ty
                 for n in range(1, 6)
             ],
         )
+        universes.replace_shortlist(
+            conn,
+            account_id=account,
+            universe_id=universe,
+            category="EQUITY",
+            rows=[(iid, 1, D("90000"), 5)],
+        )
     pool.close()
 
     changes = [
@@ -348,6 +355,7 @@ def test_plan_release_settle_over_http(client, migrated_dsn: str) -> None:  # ty
             "nav_premium_tolerance_pct": "1",
             "volume_threshold_units": "1000",
             "volume_window_days": "5",
+            "shortlist_size": "10",
         }.items()
     ]
     view = c.put(

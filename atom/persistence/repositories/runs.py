@@ -162,7 +162,12 @@ def open_plans(
         conn,
         "SELECT * FROM atom.run WHERE trading_account_id = %s AND universe_id = %s "
         "AND trade_date = %s AND run_type = 'EXECUTE' AND status = 'EXECUTING' "
-        "AND released_at IS NULL ORDER BY run_id",
+        "AND released_at IS NULL "
+        "AND (EXISTS (SELECT 1 FROM atom.order_request o WHERE o.run_id = run.run_id "
+        "             AND o.status = 'INTENT') "
+        "     OR NOT EXISTS (SELECT 1 FROM atom.order_request o WHERE o.run_id = run.run_id "
+        "                    AND o.status NOT IN ('INTENT', 'CANCELLED'))) "
+        "ORDER BY run_id",
         (account_id, universe_id, trade_date),
     )
 
@@ -172,6 +177,32 @@ def claim_release(conn: Conn, run_id: int) -> None:
     execute_expecting(
         conn,
         "UPDATE atom.run SET released_at = now() WHERE run_id = %s AND released_at IS NULL",
+        (run_id,),
+        rows=1,
+    )
+
+
+def sells_released_today(
+    conn: Conn, *, account_id: int, universe_id: int, trade_date: date
+) -> bool:
+    """Whether a plan today has already taken the day's sells to the broker."""
+    return (
+        fetch_one(
+            conn,
+            "SELECT 1 AS x FROM atom.run WHERE trading_account_id = %s AND universe_id = %s "
+            "AND trade_date = %s AND run_type = 'EXECUTE' AND sells_released_at IS NOT NULL",
+            (account_id, universe_id, trade_date),
+        )
+        is not None
+    )
+
+
+def claim_sells(conn: Conn, run_id: int) -> None:
+    """Stamp the run as the one that sent today's sells."""
+    execute_expecting(
+        conn,
+        "UPDATE atom.run SET sells_released_at = now() WHERE run_id = %s "
+        "AND sells_released_at IS NULL",
         (run_id,),
         rows=1,
     )

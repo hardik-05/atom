@@ -377,6 +377,28 @@ constraint.*
 
 ---
 
+## 7a. Shortlist (D-210, migration 0021)
+
+```sql
+-- The viable universe: per account, universe and category, the securities with the highest
+-- average volume that clear the threshold. Rebuilt at Sync; read by Execute. Volume is stored
+-- for display only and is never read by a run.
+CREATE TABLE atom.universe_shortlist (
+    trading_account_id bigint NOT NULL REFERENCES atom.trading_account,
+    universe_id        bigint NOT NULL REFERENCES atom.universe,
+    category_code      text   NOT NULL,
+    instrument_id      bigint NOT NULL REFERENCES atom.instrument,
+    rank               integer NOT NULL,
+    avg_volume         numeric(20,2) NOT NULL,
+    volume_days        integer NOT NULL,
+    built_at           timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (trading_account_id, universe_id, category_code, instrument_id)
+);
+```
+
+`atom.run` also carries `sells_released_at` (the plan that sent the day's sells) beside
+`released_at` (the plan whose buys were released; unique per account, universe and day).
+
 ## 8. Runs and decisions
 
 ```sql

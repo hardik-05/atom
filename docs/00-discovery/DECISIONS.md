@@ -675,7 +675,7 @@ investor level for consolidated reporting, rather than applying one investor-wid
   from its screen. The universe job needs **no static IP**.
 - **D-057d** NSE holiday awareness is **out of scope** — the operator knows the calendar.
 - **D-057e — Runs per day are config-driven:** `allow_multiple_runs_per_day`. When off, a second
-  Execute is refused; when on, it proceeds.
+  Execute is refused; when on, it proceeds. *(Superseded by D-211: any number of plans, one release.)*
 - **D-057f — Concurrency is queued, not parallel.** The operator may hit Execute for several
   accounts; the backend runs them **linearly** to avoid DB contention. The UI shows one status
   per account from exactly four states: **QUEUED · EXECUTING · COMPLETED · FAILED**, updated
@@ -689,11 +689,14 @@ investor level for consolidated reporting, rather than applying one investor-wid
 - **D-058b — No corporate-action adjustment.** Use the rate as given; ETFs are not expected to
   carry corp actions. *(Supersedes the Q-046 recommendation — see risk note below.)*
 - **D-058c — Price refresh is part of the weekly job and runs only on demand.** Never automatic.
+  *(Amended by D-210: the refresh that rebuilds the viable universe is the Sync, run whenever the
+  operator chooses; the daily run fetches its own prices.)*
   Brokers often cap a single history call at ~30 days, so multiple paginated calls are needed;
   **~200 days is the maximum back-refresh.**
 - **D-058d — ETF eligibility = history available for (lookback + 10 days).** No other
   eligibility rule; the volume filter does the rest.
 - **D-058e** The weekly universe is **frozen for the week**. No midweek refresh.
+  *(Superseded by D-210: the shortlist is rebuilt on demand at Sync, weekly, monthly or any time.)*
 - **D-058f — Missing NAV handling:** missing for **one day** → interpolate as the average of the
   previous and following day. Missing for **multiple days** → **exclude the ETF**.
 - **D-058g — The weekly job emits two CSVs to Telegram:** the frozen **universe** and the
@@ -1546,6 +1549,8 @@ detail to act on without re-deriving the reasoning.*
 because a human weighs the trade-off; the daily run is automated with nobody watching, so there
 is no one to weigh it. Overrides stay limited to **averaging** and **harvest proxy selection**
 (D-113). The volume filter governs universe construction absolutely.
+*(D-210 makes this literal: volume is read when the shortlist is built and never at Execute, so
+D-113's execution-time advisory no longer applies to the daily buy path.)*
 
 **D-133 — "Profit" and "taxable gain" are reported as two distinct figures.** (Q-215 closed.)
 Profit (D-061) subtracts all charges including STT; taxable gain adds STT back, since STT is not
@@ -2948,3 +2953,26 @@ broker, and is answered from NSE's own circulars.
 | ID | Question | Blocks |
 |---|---|---|
 | **Q-311** | For a proxy trading at a materially different price from the harvested security, confirm the target is `carried_amount ÷ proxy_qty × (1 + pct)` rather than the source's per-unit price (D-206) | Harvest target correctness |
+
+---
+
+## Round — 2026-10-09 · Shortlist, sells-first Execute
+
+**D-210 — Volume builds the viable universe; the daily run decides on price and NAV only.**
+Two separate data points, never mixed:
+
+| | Keys | Used | By |
+|---|---|---|---|
+| Viable universe | `volume_window_days`, `volume_threshold_units`, `shortlist_size` | At **Sync** (manual, weekly, monthly, any time) | Picks, per account and category, the securities with the highest average volume over the window that clear the threshold (equity 50, commodity 25, global 3 as the starting values); stored in `universe_shortlist` |
+| Trading decision | `lookback_days`, `average_method`, `depth_levels`, NAV gates | At **Execute** | Takes the shortlist, gets current prices, fetches the last `lookback_days` closes from the account's broker, ranks by deviation from the mean, buys up to `depth_levels` that pass NAV and the other gates; a held or NAV-failed candidate is skipped and the next fills in |
+
+Volume plays no part in a run. A run with no shortlist is refused with "run Sync market data".
+Corrects the earlier reading of `depth_levels` as "how far to look", and replaces the
+once-a-day shared price pool (D-017, D-044) as the source of a run's prices; D-058c/e are amended
+and D-112/D-113's execution-time liquidity advisory no longer applies to the daily buy.
+
+**D-211 — Execute sends the sells; the buys wait for one release a day.** Sells are planned and
+sent as soon as Execute runs, by the first plan of the day, and never wait on or fail with the
+buys. Buys are written as intents and sent on Release. Any number of plans may be made in a day
+(each supersedes the last); one release per account and universe per day is enforced by the unique
+index on `run.released_at`. Supersedes D-057e's `allow_multiple_runs_per_day` and amends D-172.

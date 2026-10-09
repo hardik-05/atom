@@ -136,15 +136,16 @@ Every operational number in ATOM. Nothing outside this table may be a literal in
 | Key | Type | Suggested starting value (UI pre-fill only) | Meaning |
 |---|---|---|---|
 | `profit_target_pct` | NUMERIC(9,4) | 3.5000 | Sell limit = buy price × (1 + this) |
-| `depth_levels` | INT | 3 | How far down the ranked list to look when candidates are already held |
+| `depth_levels` | INT | 3 | Buy up to this many securities per category per run: the top-ranked ones that pass NAV and the other gates. A candidate that is held, or fails NAV, is skipped and the next one takes its place (D-210) |
 | `trade_amount_inr` | NUMERIC(18,4) | 10000.0000 | Rupees per buy order |
-| `lookback_days` | INT | 50 | Window for the mean/median |
+| `lookback_days` | INT | 50 | Window for the mean/median price. The closes are fetched from the broker at Execute for the shortlist only (D-210) |
 | `average_method` | ENUM | `MEAN` | `MEAN` or `MEDIAN` (D-026 ranking basis) |
 | `category_enabled` | BOOL | true | Suppresses **buying** only; sells always run |
 | `nav_check_enabled` | BOOL | true | Master toggle for the NAV veto gate |
 | `nav_premium_tolerance_pct` | NUMERIC(9,4) | 2.0000 | Max premium over NAV permitted on a buy |
-| `volume_threshold_units` | NUMERIC(18,4) | 100000.0000 | Liquidity floor, in **units** (D-027) |
-| `volume_window_days` | INT | 25 / 60 | Window(s) for average volume (D-016) |
+| `volume_threshold_units` | NUMERIC(18,4) | 100000.0000 | Liquidity floor, in **units** (D-027). Used **only when the shortlist is built** at Sync; never at Execute (D-210) |
+| `volume_window_days` | INT | 100 | Days of history averaged to rank securities by volume. Used **only when the shortlist is built** at Sync (D-016, D-210) |
+| `shortlist_size` | INT | 50 equity / 25 commodity / 3 global | How many securities, by highest average volume, make the viable universe the daily run works on. Rebuilt at Sync (D-210) |
 
 ### 3.2 Strategy — key `(trading_account)`
 
@@ -198,6 +199,7 @@ Rejected at write time, not discovered at run time:
 |---|---|
 | `profit_target_pct` | > 0, ≤ 100 |
 | `depth_levels` | ≥ 1, ≤ 20 |
+| `shortlist_size` | ≥ 1, ≤ 500, and not below `depth_levels` |
 | `trade_amount_inr` | > 0, ≤ `daily_spend_cap_inr` |
 | `lookback_days` | ≥ 2, ≤ available history for that category |
 | `nav_premium_tolerance_pct` | ≥ 0 (negative would demand a discount — use 0) |

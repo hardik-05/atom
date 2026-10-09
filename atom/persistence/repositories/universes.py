@@ -190,3 +190,41 @@ def snapshot(conn: Conn, *, universe_id: int, effective_from: date, generated_by
         (snapshot_id, universe_id),
     )
     return snapshot_id
+
+
+def shortlist(conn: Conn, *, account_id: int, universe_id: int) -> dict[str, list[dict[str, Any]]]:
+    """``{category: [rows by rank]}`` as built by the last sync."""
+    rows = fetch_all(
+        conn,
+        "SELECT * FROM atom.universe_shortlist WHERE trading_account_id = %s AND universe_id = %s "
+        "ORDER BY category_code, rank",
+        (account_id, universe_id),
+    )
+    out: dict[str, list[dict[str, Any]]] = {}
+    for r in rows:
+        out.setdefault(str(r["category_code"]), []).append(r)
+    return out
+
+
+def replace_shortlist(
+    conn: Conn,
+    *,
+    account_id: int,
+    universe_id: int,
+    category: str,
+    rows: list[tuple[int, int, Any, int]],
+) -> None:
+    """Swap one category's shortlist. ``rows`` are ``(instrument_id, rank, avg_volume, days)``."""
+    execute(
+        conn,
+        "DELETE FROM atom.universe_shortlist "
+        "WHERE trading_account_id = %s AND universe_id = %s AND category_code = %s",
+        (account_id, universe_id, category),
+    )
+    for instrument_id, rank, avg_volume, days in rows:
+        execute(
+            conn,
+            "INSERT INTO atom.universe_shortlist (trading_account_id, universe_id, category_code, "
+            "instrument_id, rank, avg_volume, volume_days) VALUES (%s, %s, %s, %s, %s, %s, %s)",
+            (account_id, universe_id, category, instrument_id, rank, avg_volume, days),
+        )

@@ -1,4 +1,6 @@
 install,atom/persistence/migrations/0019_history_sync_state.sql
 install,atom/persistence/migrations/0020_many_plans_one_release.sql
+install,atom/persistence/migrations/0021_shortlist.sql
+uninstall,db/uninstall/0021_shortlist.sql
 uninstall,db/uninstall/0020_many_plans_one_release.sql
 uninstall,db/uninstall/0019_history_sync_state.sql

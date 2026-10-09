@@ -33,6 +33,7 @@ def category_values(
         "nav_premium_tolerance_pct": "2",
         "volume_threshold_units": "1000",
         "volume_window_days": "3",
+        "shortlist_size": "10",
     }
     base.update(overrides)
     return {(k, cat): (True, v) for k, v in base.items()}
@@ -151,15 +152,27 @@ def decisions(plan) -> dict[int, tuple[str, str]]:  # type: ignore[no-untyped-de
     }
 
 
-def test_most_negative_deviation_is_bought_one_per_category() -> None:
+def category_config(**overrides: str | None) -> RunConfig:
+    values = full_values()
+    values.update(category_values("EQUITY", **overrides))
+    return resolve(universe_categories=CATS, account_values=values, global_values=GLOBALS)
+
+
+def test_most_negative_deviation_is_bought_first_up_to_depth() -> None:
     members = [member(1, "AAA"), member(2, "BBB"), member(3, "CCC")]
     mkt = {1: market("95"), 2: market("90"), 3: market("99")}
-    plan = plan_buys(config=config(), members=members, market=mkt, positions={}, today=TODAY)
+    plan = plan_buys(
+        config=category_config(depth_levels="2"),
+        members=members,
+        market=mkt,
+        positions={},
+        today=TODAY,
+    )
 
-    assert [o.instrument_id for o in plan.orders] == [2]
+    assert [o.instrument_id for o in plan.orders] == [2, 1]
     d = decisions(plan)
-    assert d[2][0] == "BOUGHT"
-    assert d[1][0] == "NOT_CONSIDERED" and "already has its buy" in d[1][1]
+    assert d[2][0] == "BOUGHT" and d[1][0] == "BOUGHT"
+    assert d[3][0] == "NOT_CONSIDERED" and "already has its 2 buys" in d[3][1]
     # 10000 x 99% / 90 = 110.0 → 110 units, limit at LTP with a zero premium
     assert plan.orders[0].quantity == 110
     assert plan.orders[0].limit_price == D("90.0000")
@@ -179,22 +192,39 @@ def test_held_candidates_are_walked_past_within_depth() -> None:
     assert "averaging" in decisions(plan)[1][1]
 
 
-def test_nothing_below_depth_is_bought() -> None:
-    members = [member(i, f"S{i}") for i in range(1, 5)]
-    mkt = {i: market(str(90 + i)) for i in range(1, 5)}
+def test_held_candidates_do_not_use_up_depth() -> None:
+    members = [member(i, f"S{i}") for i in range(1, 6)]
+    mkt = {i: market(str(90 + i)) for i in range(1, 6)}
     positions = {i: Position(held_in_universe=True) for i in (1, 2, 3)}
     plan = plan_buys(config=config(), members=members, market=mkt, positions=positions, today=TODAY)
-    assert plan.orders == []
-    assert "below depth_levels 3" in decisions(plan)[4][1]
+    assert [o.instrument_id for o in plan.orders] == [4, 5]
 
 
-def test_a_gate_failure_skips_to_the_next_rank_never_substitutes() -> None:
-    members = [member(1, "THIN"), member(2, "OK")]
-    mkt = {1: market("90", volume=10), 2: market("95")}
-    plan = plan_buys(config=config(), members=members, market=mkt, positions={}, today=TODAY)
+def test_failed_nav_candidates_are_replaced_by_the_next_ones() -> None:
+    """Depth 3: ranks 1 and 2 fail NAV, so ranks 3, 4 and 5 are bought."""
+    cfg = category_config(nav_check_enabled="true", nav_premium_tolerance_pct="2")
+    members = [member(i, f"S{i}") for i in range(1, 7)]
+    mkt = {
+        i: Market(
+            ltp=D(str(80 + i)),
+            closes=[D("100")] * 5,
+            nav=D("70") if i <= 2 else D(str(80 + i)),
+            nav_date=TODAY,
+        )
+        for i in range(1, 7)
+    }
+    plan = plan_buys(config=cfg, members=members, market=mkt, positions={}, today=TODAY)
     rows = {r["instrument_id"]: r for r in plan.candidates}
-    assert rows[1]["gate_failed"] == "liquidity"
-    assert [o.instrument_id for o in plan.orders] == [2]
+    assert rows[1]["gate_failed"] == rows[2]["gate_failed"] == "nav_premium"
+    assert [o.instrument_id for o in plan.orders] == [3, 4, 5]
+    assert rows[6]["decision"] == "NOT_CONSIDERED"
+
+
+def test_volume_plays_no_part_in_a_run() -> None:
+    members = [member(1, "THIN"), member(2, "OK")]
+    mkt = {1: market("90", volume=1), 2: market("95")}
+    plan = plan_buys(config=config(), members=members, market=mkt, positions={}, today=TODAY)
+    assert [o.instrument_id for o in plan.orders] == [1, 2]
 
 
 def test_above_reference_is_never_bought() -> None:
@@ -295,3 +325,14 @@ def test_nothing_sellable_is_skipped_with_a_reason() -> None:
     )
     assert tranches == []
     assert "nothing sellable" in skipped[0].reason
+
+
+def test_shortlist_size_is_required_and_cannot_be_below_depth() -> None:
+    values = full_values()
+    del values[("shortlist_size", "EQUITY")]
+    with pytest.raises(ConfigError, match=r"shortlist_size \[EQUITY\]"):
+        resolve(universe_categories=CATS, account_values=values, global_values=GLOBALS)
+    values = full_values()
+    values.update(category_values("EQUITY", shortlist_size="2", depth_levels="3"))
+    with pytest.raises(ConfigError, match="below depth_levels"):
+        resolve(universe_categories=CATS, account_values=values, global_values=GLOBALS)

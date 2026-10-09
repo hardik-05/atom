@@ -10,9 +10,13 @@ Per category, in the configured priority order (D-042):
 1. every member gets a reference price — the MEAN or MEDIAN of the last
    ``lookback_days`` closes — and a deviation of LTP from it, in PERCENT (D-149)
 2. members are ranked most-negative first
-3. the ranking is walked down to ``depth_levels``; the first candidate that is
-   below its reference, not already held, and passes every gate is bought
-4. one buy per category per run
+3. the ranking is walked from the top; every candidate that is below its reference,
+   not already held, and passes every gate is bought, until ``depth_levels`` are
+   bought. A candidate that fails (NAV, held, ...) is skipped and the next one fills
+   in, so a failure never uses up a slot.
+
+Volume plays no part here. It chose the shortlist the members come from, when market
+data was synced; a run decides on price and NAV alone.
 
 Every member writes a candidate row whether or not it is bought.
 """
@@ -50,8 +54,8 @@ class Market:
     ltp: Decimal | None
     closes: Sequence[Decimal]
     """Newest first, strictly before today."""
-    volumes: Sequence[int | None]
-    """Newest first, aligned with ``closes``."""
+    volumes: Sequence[int | None] = ()
+    """Newest first, aligned with ``closes``. Informational: no gate reads it."""
     nav: Decimal | None = None
     nav_date: date | None = None
 
@@ -164,7 +168,7 @@ def plan_buys(
     for category in config.category_priority:
         cat_cfg = config.categories[category]
         rows = sorted(ranked.get(category, []), key=lambda r: (r[4], r[0].symbol))
-        bought = False
+        bought = 0
         for rank, (member, reference, median, ltp, deviation) in enumerate(rows, start=1):
             mkt = market[member.instrument_id]
             pos = positions.get(member.instrument_id, Position())
@@ -195,22 +199,13 @@ def plan_buys(
                     decision_reason=f"buying off for {category}: {cat_cfg.disabled_reason}",
                 )
                 continue
-            if bought:
+            if bought >= cat_cfg.depth_levels:
                 record(
                     member,
                     rank,
                     **base,
                     decision="NOT_CONSIDERED",
-                    decision_reason=f"{category} already has its buy for this run",
-                )
-                continue
-            if rank > cat_cfg.depth_levels:
-                record(
-                    member,
-                    rank,
-                    **base,
-                    decision="NOT_CONSIDERED",
-                    decision_reason=f"below depth_levels {cat_cfg.depth_levels}",
+                    decision_reason=f"{category} already has its {cat_cfg.depth_levels} buys",
                 )
                 continue
             if deviation >= 0:
@@ -245,12 +240,7 @@ def plan_buys(
             order_value = money(limit * quantity) if limit is not None else ZERO
 
             failure = (
-                gates.liquidity(
-                    list(mkt.volumes),
-                    window=cat_cfg.volume_window_days,
-                    threshold_units=cat_cfg.volume_threshold_units,
-                )
-                or gates.nav_premium(
+                gates.nav_premium(
                     ltp,
                     mkt.nav,
                     mkt.nav_date,
@@ -305,7 +295,7 @@ def plan_buys(
                 )
             )
             plan.spent += order_value
-            bought = True
+            bought += 1
             record(
                 member,
                 rank,

@@ -44,7 +44,8 @@ ALL_KEYS = {
 }
 CATEGORY_KEYS = {
     "profit_target_pct": "3.5",
-    "depth_levels": "3",
+    "depth_levels": "1",
+    "shortlist_size": "10",
     "trade_amount_inr": "10000",
     "lookback_days": "5",
     "average_method": "MEAN",
@@ -149,6 +150,13 @@ def world(fresh_dsn: str, monkeypatch: pytest.MonkeyPatch) -> Iterator[dict[str,
                 changed_by="test",
             )
             ids[symbol] = iid
+            universes.replace_shortlist(
+                conn,
+                account_id=account,
+                universe_id=universe,
+                category="EQUITY",
+                rows=[(iid, len(ids), D("50000"), 5)],
+            )
             # five days of history at 100, before DAY1
             market.upsert_candles(
                 conn,
@@ -245,16 +253,19 @@ def test_two_trading_days_buy_then_sell(world: dict) -> None:
         for r in rows(pool, "SELECT * FROM atom.run_candidate WHERE run_id = %s", (plan.run_id,))
     }
     assert candidates[ids["BBB"]]["decision"] == "BOUGHT"
-    # CCC is never reached: the category already has its buy (one per category per run)
+    # CCC is never reached: the category already has its buy (depth_levels is 1 here)
     assert candidates[ids["CCC"]]["decision"] == "NOT_CONSIDERED"
-    assert "already has its buy" in candidates[ids["CCC"]]["decision_reason"]
+    assert "already has its 1 buys" in candidates[ids["CCC"]]["decision_reason"]
     [intent] = rows(pool, "SELECT * FROM atom.order_request WHERE run_id = %s", (plan.run_id,))
     assert intent["status"] == "INTENT"  # written before anything is sent (D-094)
     assert intent["quantity"] == 110 and intent["limit_price"] == D("90.0000")
 
-    # a second plan the same day is refused, the first is still live
-    with pytest.raises(PreflightError, match="already exists"):
-        runs.plan(account_id=account, universe_id=universe, actor="test")
+    # a second plan the same day supersedes the first; only one can ever be released
+    first_plan = plan
+    plan = runs.plan(account_id=account, universe_id=universe, actor="test")
+    assert plan.run_id != first_plan.run_id
+    [old] = rows(pool, "SELECT status FROM atom.run WHERE run_id = %s", (first_plan.run_id,))
+    assert old["status"] == "FAILED"
 
     # ---- release through the DRY gateway: nothing reaches the fake broker
     released = runs.release(plan.run_id, actor="test")
@@ -305,6 +316,7 @@ def test_two_trading_days_buy_then_sell(world: dict) -> None:
     state.quotes = {ids["AAA"]: D("96"), ids["BBB"]: D("91"), ids["CCC"]: D("104")}
     plan2 = runs.plan(account_id=account, universe_id=universe, actor="test")
     assert (plan2.buys, plan2.sells) == (1, 1)
+    assert plan2.sells_sent == 1 and plan2.sells_error is None  # sells go out at Execute
     orders2 = {
         o["side"]: o
         for o in rows(pool, "SELECT * FROM atom.order_request WHERE run_id = %s", (plan2.run_id,))
@@ -318,7 +330,7 @@ def test_two_trading_days_buy_then_sell(world: dict) -> None:
     }
     assert cand2[ids["BBB"]]["holdings_status"] == "HELD"
 
-    runs.release(plan2.run_id, actor="test")
+    assert runs.release(plan2.run_id, actor="test")["placed"] == 1  # the buy only
     state.candles = {
         ids["BBB"]: [
             CanonicalCandle(

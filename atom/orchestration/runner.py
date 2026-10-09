@@ -21,8 +21,8 @@ log — so "why did nothing happen today" always has an answer in SQL.
 from __future__ import annotations
 
 from collections import defaultdict
-from dataclasses import dataclass
-from datetime import date, datetime
+from dataclasses import dataclass, replace
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 from typing import Any
 
@@ -43,6 +43,7 @@ from atom.domain.errors import (
 from atom.domain.models import GttIntent, OrderIntent
 from atom.infra.clock import now_ist, now_utc, today_ist
 from atom.infra.egress import EgressCheckError, observed_egress_ip
+from atom.orchestration import history
 from atom.orchestration.engine import Engine, close_adapter
 from atom.orchestration.gateway import DryGateway, LiveGateway, OrderGateway
 from atom.persistence.db import transaction
@@ -97,6 +98,11 @@ class PlanResult:
     buys: int
     sells: int
     candidates: int
+    sells_sent: int = 0
+    """Sell orders already placed: sells go out as soon as the plan is made."""
+    sells_error: str | None = None
+    buy_error: str | None = None
+    """Why no buy plan exists, when that is so. The sells are unaffected."""
 
 
 class RunService:
@@ -142,11 +148,17 @@ class RunService:
             )
 
         try:
-            with transaction(self.engine.pool) as conn:
-                result = self._plan_body(conn, run_id, acct, cfg, universe_id, today, mode)
+            result, sells_pending = self._plan_body(run_id, acct, cfg, universe_id, today, mode)
         except Exception as exc:
             self._fail(run_id, "PLAN", exc)
             raise
+        if sells_pending:
+            # Sells do not wait for the operator and are not held up by anything on the buy side.
+            try:
+                sent = self._dispatch(run_id, actor, sells=True, buys=False)
+                result = replace(result, sells_sent=sent["placed"])
+            except AtomError as exc:
+                result = replace(result, sells_error=str(exc))
         return result
 
     def _config(self, conn: Any, account_id: int, universe_id: int) -> RunConfig:
@@ -211,19 +223,41 @@ class RunService:
 
     def _plan_body(
         self,
-        conn: Any,
         run_id: int,
         acct: dict[str, Any],
         cfg: RunConfig,
         universe_id: int,
         today: date,
         mode: str,
-    ) -> PlanResult:
+    ) -> tuple[PlanResult, bool]:
+        """Returns the result and whether this plan owns the day's sells.
+
+        Two transactions. The first decides and records the sells; once it commits they stand
+        whatever happens on the buy side. The second decides the buys and may fail on its own.
+        """
+        with self.engine.pool.connection() as adapter_conn:
+            adapter = self.engine.adapter(acct["broker_code"], adapter_conn)
+            try:
+                return self._plan_with(adapter, run_id, acct, cfg, universe_id, today, mode)
+            finally:
+                close_adapter(adapter)
+
+    def _plan_with(
+        self,
+        adapter: Any,
+        run_id: int,
+        acct: dict[str, Any],
+        cfg: RunConfig,
+        universe_id: int,
+        today: date,
+        mode: str,
+    ) -> tuple[PlanResult, bool]:
         aid = int(acct["trading_account_id"])
         broker_id = int(acct["broker_id"])
-        ref = accounts.account_ref(conn, aid, today)
-        adapter = self.engine.adapter(acct["broker_code"], conn)
-        try:
+
+        # ================= transaction 1: pre-flight, reference data, sells
+        with transaction(self.engine.pool) as conn:
+            ref = accounts.account_ref(conn, aid, today)
             # ---- phase 0: token (tested, never computed) and egress
             probe = adapter.probe_token(ref)
             if not probe.ok:
@@ -243,202 +277,314 @@ class RunService:
             # ---- phase 1: reference
             members = universes.current_members(conn, universe_id, broker_id=broker_id)
             ids = [int(m["instrument_id"]) for m in members]
+            shortlist = universes.shortlist(conn, account_id=aid, universe_id=universe_id)
+            short_ids: dict[int, str] = {}  # instrument -> category
+            for short_cat, rows in shortlist.items():
+                cat_cfg = cfg.categories.get(short_cat)
+                if cat_cfg is None:
+                    continue
+                for r in rows[: cat_cfg.shortlist_size]:
+                    short_ids[int(r["instrument_id"])] = short_cat
             lots_all = orders.open_lots(conn, account_id=aid)
             lots_universe = [lot for lot in lots_all if lot.universe_id == universe_id]
             held_ids = {lot.instrument_id for lot in lots_universe}
+            wanted = sorted(set(ids) | held_ids)
             info = {
                 int(r["instrument_id"]): r
-                for r in instruments.by_ids(conn, sorted(set(ids) | held_ids), broker_id=broker_id)
+                for r in instruments.by_ids(conn, wanted, broker_id=broker_id)
             }
+            quote_ids = sorted(held_ids | set(short_ids))
             tokens = [
                 str(info[i]["broker_token"])
-                for i in sorted(set(ids) | held_ids)
+                for i in quote_ids
                 if info.get(i, {}).get("broker_token")
             ]
             quotes = (
                 {q.instrument_id: q for q in adapter.fetch_quotes(ref, tokens)} if tokens else {}
             )
-            depth = max(
-                (max(c.lookback_days, c.volume_window_days) for c in cfg.categories.values()),
-                default=1,
-            )
-            bars = market.recent_bars(conn, ids, before=today, limit=depth)
-            navs = market.latest_navs(conn, ids, on_or_before=today)
             runs.log(
                 conn,
                 run_id,
                 level="INFO",
                 stage="REFERENCE",
-                message=f"{len(members)} members, {len(quotes)} quotes, "
-                f"{sum(1 for b in bars.values() if b)} with history, {len(navs)} with NAV",
+                message=f"{len(short_ids)} shortlisted of {len(members)} members, "
+                f"{len(quotes)} quotes",
             )
 
             # ---- phase 2: reconcile (LIVE only — a paper book is never read against the broker)
             withheld = orders.withheld_by_instrument(conn, aid)
-            free: dict[int, int | None] = {}
-            if mode == "LIVE":
-                free = self._reconcile(conn, run_id, adapter, ref, lots_all, withheld)
-
-            # ---- phase 3: sell plan
-            member_cat = {int(m["instrument_id"]): m["category"] for m in members}
-            sell_inputs: dict[int, SellInput] = {}
-            universe_qty: dict[int, int] = defaultdict(int)
-            for lot in lots_universe:
-                universe_qty[lot.instrument_id] += lot.quantity_open
-            for iid, qty in universe_qty.items():
-                meta = info.get(iid, {})
-                cat = member_cat.get(iid) or meta.get("asset_class")
-                cat_cfg = cfg.categories.get(cat) if cat else None
-                if mode == "LIVE":
-                    broker_free = free.get(iid)
-                    cap = (
-                        None
-                        if broker_free is None
-                        else min(qty, broker_free - withheld.get(iid, 0))
-                    )
-                else:
-                    cap = qty
-                sell_inputs[iid] = SellInput(
-                    category=cat,
-                    profit_target_pct=cat_cfg.profit_target_pct if cat_cfg else None,
-                    tick_size=meta.get("tick_size"),
-                    sellable_quantity=cap,
-                )
-            tranches, skipped = plan_sells(lots_universe, sell_inputs)
-            for s in skipped:
-                runs.log(
-                    conn,
-                    run_id,
-                    level="WARNING",
-                    stage="SELL",
-                    message=f"{info.get(s.instrument_id, {}).get('symbol', s.instrument_id)}: "
-                    f"{s.reason}",
-                )
-            sells_blocked = sell_authorisation_blocked(
-                adapter.capabilities, probe.flags, mode, acct.get("depository_authorisation")
+            sells_done = runs.sells_released_today(
+                conn, account_id=aid, universe_id=universe_id, trade_date=today
             )
-            if sells_blocked and tranches:
-                runs.log(conn, run_id, level="WARNING", stage="SELL", message=sells_blocked)
-                tranches = []
-
-            seq = 0
-            for tranche in tranches:
-                seq += 1
-                ltp = (
-                    quotes[tranche.instrument_id].last_price
-                    if tranche.instrument_id in quotes
-                    else None
-                )
-                # A GTT "ABOVE" trigger cannot be placed at or below the price the
-                # market is already at; a plain DAY limit at the target does the
-                # same job and fills today.
-                use_gtt = adapter.capabilities.supports_gtt and (
-                    ltp is None or ltp < tranche.target_price
-                )
-                orders.insert_intent(
-                    conn,
-                    run_id=run_id,
-                    account_id=aid,
-                    universe_id=universe_id,
-                    instrument_id=tranche.instrument_id,
-                    side="SELL",
-                    order_kind="GTT" if use_gtt else "LIMIT",
-                    quantity=tranche.quantity,
-                    limit_price=tranche.target_price,
-                    trigger_price=tranche.target_price if use_gtt else None,
-                    idempotency_key=make_client_ref(trade_date=today, run_id=run_id, sequence=seq),
-                )
+            free: dict[int, int | None] = {}
+            if sells_done:
                 runs.log(
                     conn,
                     run_id,
                     level="INFO",
                     stage="SELL",
-                    message=f"{info[tranche.instrument_id]['symbol']}: {tranche.basis_kind.value} "
-                    f"tranche {tranche.quantity} @ {tranche.target_price} "
-                    f"(basis {tranche.basis_price})",
+                    message="today's sells were already placed by an earlier plan; "
+                    "this plan covers buys only",
                 )
+            elif mode == "LIVE":
+                free = self._reconcile(conn, run_id, adapter, ref, lots_all, withheld)
 
-            # ---- phase 4: buy plan
+            # ---- phase 3: sell plan
+            member_cat = {int(m["instrument_id"]): m["category"] for m in members}
+            tranches: list[Any] = []
+            seq = 0
+            if not sells_done:
+                sell_inputs: dict[int, SellInput] = {}
+                universe_qty: dict[int, int] = defaultdict(int)
+                for lot in lots_universe:
+                    universe_qty[lot.instrument_id] += lot.quantity_open
+                for iid, qty in universe_qty.items():
+                    meta = info.get(iid, {})
+                    cat = member_cat.get(iid) or meta.get("asset_class")
+                    cat_cfg = cfg.categories.get(cat) if cat else None
+                    if mode == "LIVE":
+                        broker_free = free.get(iid)
+                        cap = (
+                            None
+                            if broker_free is None
+                            else min(qty, broker_free - withheld.get(iid, 0))
+                        )
+                    else:
+                        cap = qty
+                    sell_inputs[iid] = SellInput(
+                        category=cat,
+                        profit_target_pct=cat_cfg.profit_target_pct if cat_cfg else None,
+                        tick_size=meta.get("tick_size"),
+                        sellable_quantity=cap,
+                    )
+                tranches, skipped = plan_sells(lots_universe, sell_inputs)
+                for s in skipped:
+                    runs.log(
+                        conn,
+                        run_id,
+                        level="WARNING",
+                        stage="SELL",
+                        message=f"{info.get(s.instrument_id, {}).get('symbol', s.instrument_id)}: "
+                        f"{s.reason}",
+                    )
+                sells_blocked = sell_authorisation_blocked(
+                    adapter.capabilities, probe.flags, mode, acct.get("depository_authorisation")
+                )
+                if sells_blocked and tranches:
+                    runs.log(conn, run_id, level="WARNING", stage="SELL", message=sells_blocked)
+                    tranches = []
+                for tranche in tranches:
+                    seq += 1
+                    ltp = (
+                        quotes[tranche.instrument_id].last_price
+                        if tranche.instrument_id in quotes
+                        else None
+                    )
+                    # A GTT "ABOVE" trigger cannot be placed at or below the price the
+                    # market is already at; a plain DAY limit at the target does the
+                    # same job and fills today.
+                    use_gtt = adapter.capabilities.supports_gtt and (
+                        ltp is None or ltp < tranche.target_price
+                    )
+                    orders.insert_intent(
+                        conn,
+                        run_id=run_id,
+                        account_id=aid,
+                        universe_id=universe_id,
+                        instrument_id=tranche.instrument_id,
+                        side="SELL",
+                        order_kind="GTT" if use_gtt else "LIMIT",
+                        quantity=tranche.quantity,
+                        limit_price=tranche.target_price,
+                        trigger_price=tranche.target_price if use_gtt else None,
+                        idempotency_key=make_client_ref(
+                            trade_date=today, run_id=run_id, sequence=seq
+                        ),
+                    )
+                    runs.log(
+                        conn,
+                        run_id,
+                        level="INFO",
+                        stage="SELL",
+                        message=f"{info[tranche.instrument_id]['symbol']}: "
+                        f"{tranche.basis_kind.value} tranche {tranche.quantity} @ "
+                        f"{tranche.target_price} (basis {tranche.basis_price})",
+                    )
+
+            # reads the buy phase needs
             bought_today = orders.bought_today(
                 conn, account_id=aid, universe_id=universe_id, trade_date=today
             )
-            proxies = {
-                lot.instrument_id for lot in lots_universe if lot.synthetic_cost_basis is not None
-            }
-            plan_members = [
-                Member(
-                    instrument_id=int(m["instrument_id"]),
-                    symbol=str(m["symbol"]),
-                    category=m["category"],
-                    member_frozen=m["member_status"] == "FROZEN",
-                    instrument_status=str(m["instrument_status"]),
-                    broker_mapped=m["broker_token"] is not None,
-                    broker_tradable=bool(m["tradable"]),
-                    tick_size=m["tick_size"],
-                )
-                for m in members
-            ]
-            market_view = {
-                iid: Market(
-                    ltp=quotes[iid].last_price if iid in quotes else None,
-                    closes=[b["close_px"] for b in bars.get(iid, [])],
-                    volumes=[b["volume"] for b in bars.get(iid, [])],
-                    nav=(navs.get(iid) or {}).get("nav"),
-                    nav_date=(navs.get(iid) or {}).get("trade_date"),
-                )
-                for iid in ids
-            }
-            positions = {
-                iid: Position(
-                    held_in_universe=iid in held_ids,
-                    holds_harvest_proxy=iid in proxies,
-                    withheld_quantity=withheld.get(iid, 0),
-                    bought_today=iid in bought_today,
-                )
-                for iid in ids
-            }
-            buy_plan = plan_buys(
-                config=cfg,
-                members=plan_members,
-                market=market_view,
-                positions=positions,
-                today=today,
-                orders_already_planned=seq,
-            )
-            for row in buy_plan.candidates:
-                runs.add_candidate(conn, run_id, row)
-            for buy in buy_plan.orders:
-                seq += 1
-                orders.insert_intent(
-                    conn,
-                    run_id=run_id,
+            lookback_max = max((c.lookback_days for c in cfg.categories.values()), default=1)
+            db_bars = market.recent_bars(conn, sorted(short_ids), before=today, limit=lookback_max)
+            navs = market.latest_navs(conn, sorted(short_ids), on_or_before=today)
+        sell_count = seq
+
+        # ================= transaction 2: buys. Failing here leaves the sells untouched.
+        buys, candidates, buy_error = 0, 0, None
+        try:
+            if not short_ids:
+                raise PreflightError(
+                    'no shortlist for this account and universe: run "Sync market data" so the '
+                    "tradable list is built",
+                    gate="shortlist",
                     account_id=aid,
-                    universe_id=universe_id,
-                    instrument_id=buy.instrument_id,
-                    side="BUY",
-                    order_kind="LIMIT",
-                    quantity=buy.quantity,
-                    limit_price=buy.limit_price,
-                    trigger_price=None,
-                    idempotency_key=make_client_ref(trade_date=today, run_id=run_id, sequence=seq),
                 )
-            runs.log(
-                conn,
-                run_id,
-                level="INFO",
-                stage="BUY",
-                message=f"planned {len(buy_plan.orders)} buys worth {buy_plan.spent}; "
-                f"{len(tranches)} sell tranches; awaiting release",
-                context={"spent": str(buy_plan.spent)},
+            closes_by_id, fetch_note = self._fetch_closes(
+                adapter, ref, info, short_ids, cfg, today, db_bars
             )
-        finally:
-            close_adapter(adapter)
-        return PlanResult(
-            run_id=run_id,
-            execution_mode=mode,
-            buys=len(buy_plan.orders),
-            sells=len(tranches),
-            candidates=len(buy_plan.candidates),
+            with transaction(self.engine.pool) as conn:
+                runs.log(conn, run_id, level="INFO", stage="REFERENCE", message=fetch_note)
+                proxies = {
+                    lot.instrument_id
+                    for lot in lots_universe
+                    if lot.synthetic_cost_basis is not None
+                }
+                plan_members = [
+                    Member(
+                        instrument_id=int(m["instrument_id"]),
+                        symbol=str(m["symbol"]),
+                        category=short_ids[int(m["instrument_id"])],
+                        member_frozen=m["member_status"] == "FROZEN",
+                        instrument_status=str(m["instrument_status"]),
+                        broker_mapped=m["broker_token"] is not None,
+                        broker_tradable=bool(m["tradable"]),
+                        tick_size=m["tick_size"],
+                    )
+                    for m in members
+                    if int(m["instrument_id"]) in short_ids
+                ]
+                market_view = {
+                    iid: Market(
+                        ltp=quotes[iid].last_price if iid in quotes else None,
+                        closes=closes_by_id.get(iid, []),
+                        nav=(navs.get(iid) or {}).get("nav"),
+                        nav_date=(navs.get(iid) or {}).get("trade_date"),
+                    )
+                    for iid in short_ids
+                }
+                positions = {
+                    iid: Position(
+                        held_in_universe=iid in held_ids,
+                        holds_harvest_proxy=iid in proxies,
+                        withheld_quantity=withheld.get(iid, 0),
+                        bought_today=iid in bought_today,
+                    )
+                    for iid in short_ids
+                }
+                buy_plan = plan_buys(
+                    config=cfg,
+                    members=plan_members,
+                    market=market_view,
+                    positions=positions,
+                    today=today,
+                    orders_already_planned=sell_count,
+                )
+                for row in buy_plan.candidates:
+                    runs.add_candidate(conn, run_id, row)
+                for buy in buy_plan.orders:
+                    seq += 1
+                    orders.insert_intent(
+                        conn,
+                        run_id=run_id,
+                        account_id=aid,
+                        universe_id=universe_id,
+                        instrument_id=buy.instrument_id,
+                        side="BUY",
+                        order_kind="LIMIT",
+                        quantity=buy.quantity,
+                        limit_price=buy.limit_price,
+                        trigger_price=None,
+                        idempotency_key=make_client_ref(
+                            trade_date=today, run_id=run_id, sequence=seq
+                        ),
+                    )
+                runs.log(
+                    conn,
+                    run_id,
+                    level="INFO",
+                    stage="BUY",
+                    message=f"planned {len(buy_plan.orders)} buys worth {buy_plan.spent}; "
+                    f"{len(tranches)} sell tranches; buys await release",
+                    context={"spent": str(buy_plan.spent)},
+                )
+                buys, candidates = len(buy_plan.orders), len(buy_plan.candidates)
+        except (AtomError, ValueError, KeyError) as exc:
+            buy_error = str(exc)
+            with transaction(self.engine.pool) as conn:
+                runs.log(
+                    conn,
+                    run_id,
+                    level="ERROR",
+                    stage="BUY",
+                    message=f"buy plan not made: {exc}",
+                )
+        return (
+            PlanResult(
+                run_id=run_id,
+                execution_mode=mode,
+                buys=buys,
+                sells=len(tranches),
+                candidates=candidates,
+                buy_error=buy_error,
+            ),
+            not sells_done,
+        )
+
+    @staticmethod
+    def _fetch_closes(
+        adapter: Any,
+        ref: Any,
+        info: dict[int, dict[str, Any]],
+        short_ids: dict[int, str],
+        cfg: RunConfig,
+        today: date,
+        db_bars: dict[int, list[dict[str, Any]]],
+    ) -> tuple[dict[int, list[Decimal]], str]:
+        """Closes (newest first, before today) of every shortlisted instrument, from the broker.
+
+        The daily history sync plays no part: each run asks the broker for the last
+        ``lookback_days`` of prices itself. An instrument the broker call fails for falls back
+        to what the database holds, and the run log says how many did.
+        """
+        tasks: list[history.Task] = []
+        need: dict[int, int] = {}
+        for iid, cat in short_ids.items():
+            meta = info.get(iid, {})
+            lookback = cfg.categories[cat].lookback_days
+            need[iid] = lookback
+            if meta.get("broker_token"):
+                span = int(lookback * 1.6) + 15  # trading days -> calendar days, with slack
+                tasks.append(
+                    history.Task(
+                        iid,
+                        str(meta["symbol"]),
+                        meta["broker_token"],
+                        [(today - timedelta(days=span), today - timedelta(days=1))],
+                    )
+                )
+        outcomes = history.fetch_all(
+            lambda token, start, stop: adapter.fetch_daily_candles(ref, token, start, stop), tasks
+        )
+        closes: dict[int, list[Decimal]] = {}
+        for o in outcomes:
+            if o.error is None and not o.skipped:
+                bars = sorted(
+                    (b for b in o.bars if b.trade_date < today),
+                    key=lambda b: b.trade_date,
+                    reverse=True,
+                )
+                closes[o.task.instrument_id] = [b.close for b in bars[: need[o.task.instrument_id]]]
+        fallback = 0
+        for iid in short_ids:
+            stored = [b["close_px"] for b in db_bars.get(iid, [])][: need[iid]]
+            # A failed or thinner broker answer gives way to what the database already holds.
+            if iid not in closes or len(closes[iid]) < min(need[iid], len(stored)):
+                fallback += 1
+                closes[iid] = stored
+        return closes, (
+            f"fetched {len(short_ids) - fallback} of {len(short_ids)} shortlisted price histories "
+            f"from the broker; {fallback} fell back to the database"
         )
 
     def _check_egress(self, acct: dict[str, Any]) -> None:
@@ -510,7 +656,19 @@ class RunService:
 
     # =============================================================== release
     def release(self, run_id: int, *, actor: str) -> dict[str, Any]:
+        """Send the plan's BUYS. This is the day's one release. Sells normally went out when the
+        plan was made; any that did not (a failed attempt) are sent first."""
+        with transaction(self.engine.pool) as conn:
+            pending = [
+                o
+                for o in orders.orders_for_run(conn, run_id)
+                if o["status"] == "INTENT" and o["side"] == "SELL"
+            ]
+        return self._dispatch(run_id, actor, sells=bool(pending), buys=True)
+
+    def _dispatch(self, run_id: int, actor: str, *, sells: bool, buys: bool) -> dict[str, Any]:
         today = today_ist()
+        stage = "SELL" if sells and not buys else "BUY"
         with transaction(self.engine.pool) as conn:
             run = runs.get_run(conn, run_id)
             if run["status"] != "EXECUTING":
@@ -520,8 +678,10 @@ class RunService:
                     f"run {run_id} was planned for {run['trade_date']}; plan a fresh one"
                 )
             intents = [o for o in orders.orders_for_run(conn, run_id) if o["status"] == "INTENT"]
-            if not intents:
-                raise ValidationError(f"run {run_id} has nothing left to release")
+            sell_intents = [o for o in intents if o["side"] == "SELL"] if sells else []
+            buy_intents = [o for o in intents if o["side"] == "BUY"] if buys else []
+            if not sells and not buy_intents:
+                raise ValidationError(f"run {run_id} has no buy orders left to release")
             is_set, kill = config.global_value(conn, "kill_switch")
             if not is_set or (kill or "").lower() != "false":
                 raise PreflightError(
@@ -529,7 +689,13 @@ class RunService:
                 )
             acct = accounts.get_account(conn, int(run["trading_account_id"]))
             ref = accounts.account_ref(conn, int(acct["trading_account_id"]), today)
-            runs.log(conn, run_id, level="INFO", stage="SELL", message=f"released by {actor}")
+            runs.log(
+                conn,
+                run_id,
+                level="INFO",
+                stage=stage,
+                message=f"{'sells' if stage == 'SELL' else 'buys'} released by {actor}",
+            )
 
         placed, rejected, halted = 0, 0, None
         # The adapter's instrument resolver reads through this connection for the
@@ -548,30 +714,31 @@ class RunService:
                         raise PreflightError(f"token no longer valid: {probe.detail}", gate="token")
                     self._check_egress(acct)
 
-                # Sell pass first: cancel ATOM's resting GTTs, VERIFY, then place
-                # (D-063). Always, even with no new tranches — a stale GTT from an
-                # earlier run is exactly what the cancel exists to clear.
-                self._cancel_and_verify(run, gateway)
-                # Claimed only now, once every check has passed and the next step sends
-                # orders: a release that stops earlier leaves the day's slot free. The unique
-                # index makes a concurrent second release fail here, before anything is sent.
-                with transaction(self.engine.pool) as conn:
-                    other = runs.released_execute_run(
-                        conn,
-                        account_id=int(run["trading_account_id"]),
-                        universe_id=int(run["universe_id"]),
-                        trade_date=today,
-                    )
-                    if other:
-                        raise ValidationError(
-                            f"run {other['run_id']} was already released today; "
-                            "only one release per account and universe per day"
+                if sells:
+                    # Cancel ATOM's resting GTTs, VERIFY, then place (D-063). Even with no new
+                    # tranches: a stale GTT from an earlier day is what the cancel exists to clear.
+                    self._cancel_and_verify(run, gateway)
+                    if sell_intents:
+                        with transaction(self.engine.pool) as conn:
+                            runs.claim_sells(conn, run_id)
+                if buy_intents:
+                    # Claimed only now, once every check has passed and the next step sends
+                    # orders: a release that stops earlier leaves the day's slot free. The unique
+                    # index makes a concurrent second release fail here, before anything is sent.
+                    with transaction(self.engine.pool) as conn:
+                        other = runs.released_execute_run(
+                            conn,
+                            account_id=int(run["trading_account_id"]),
+                            universe_id=int(run["universe_id"]),
+                            trade_date=today,
                         )
-                    runs.claim_release(conn, run_id)
-                ordered = [o for o in intents if o["side"] == "SELL"] + [
-                    o for o in intents if o["side"] == "BUY"
-                ]
-                for order in ordered:
+                        if other:
+                            raise ValidationError(
+                                f"run {other['run_id']} was already released today; "
+                                "only one release per account and universe per day"
+                            )
+                        runs.claim_release(conn, run_id)
+                for order in sell_intents + buy_intents:
                     outcome = self._send(run, order, gateway)
                     if outcome == "placed":
                         placed += 1
@@ -581,7 +748,8 @@ class RunService:
                         halted = outcome
                         break
             except AtomError as exc:
-                self._fail(run_id, "SELL", exc)
+                # The plan stays open: nothing was sent, or what was sent is settled as usual.
+                self._log_error(run_id, stage, exc)
                 raise
             finally:
                 close_adapter(adapter)
@@ -591,11 +759,11 @@ class RunService:
                 conn,
                 run_id,
                 level="WARNING" if halted else "INFO",
-                stage="BUY",
+                stage=stage,
                 message=f"release finished: {placed} placed, {rejected} rejected"
                 + (f"; HALTED — {halted}" if halted else ""),
             )
-            if halted:
+            if halted and buys:
                 runs.set_status(conn, run_id, "FAILED")
         return {"placed": placed, "rejected": rejected, "halted": halted}
 
@@ -888,42 +1056,50 @@ class RunService:
 
     # ================================================================ discard
     @staticmethod
-    def _supersede(conn: Any, run_id: int, actor: str) -> None:
+    def _retire(conn: Any, run_id: int, reason: str) -> None:
+        """Cancel the plan's unsent orders. A run that sent nothing is FAILED, so it neither
+        counts as a release nor sits open; one whose sells went out stays to be settled."""
+        sent = False
         for o in orders.orders_for_run(conn, run_id):
             if o["status"] == "INTENT":
                 orders.mark_status(
-                    conn,
-                    int(o["order_request_id"]),
-                    status="CANCELLED",
-                    reject_reason=f"superseded by a newer plan ({actor})",
+                    conn, int(o["order_request_id"]), status="CANCELLED", reject_reason=reason
                 )
-        runs.log(conn, run_id, level="INFO", stage="PLAN", message="superseded by a newer plan")
-        runs.set_status(conn, run_id, "FAILED")
+            elif o["status"] != "CANCELLED":
+                sent = True
+        runs.log(conn, run_id, level="INFO", stage="PLAN", message=reason)
+        if not sent:
+            runs.set_status(conn, run_id, "FAILED")
+
+    def _supersede(self, conn: Any, run_id: int, actor: str) -> None:
+        self._retire(conn, run_id, f"superseded by a newer plan ({actor})")
 
     def discard(self, run_id: int, *, actor: str) -> None:
         with transaction(self.engine.pool) as conn:
             run = runs.get_run(conn, run_id)
-            run_orders = orders.orders_for_run(conn, run_id)
-            if any(o["status"] != "INTENT" for o in run_orders):
-                raise ValidationError(
-                    "orders from this run have already been sent; settle it instead"
-                )
             if run["status"] != "EXECUTING":
                 raise ValidationError(f"run {run_id} is {run['status']}")
-            for o in run_orders:
-                orders.mark_status(
-                    conn,
-                    int(o["order_request_id"]),
-                    status="CANCELLED",
-                    reject_reason=f"plan discarded by {actor} before release",
-                )
-            runs.log(conn, run_id, level="INFO", stage="PLAN", message=f"discarded by {actor}")
-            runs.set_status(conn, run_id, "FAILED")
+            if run["released_at"] is not None:
+                raise ValidationError("this run's buys have already been sent; settle it instead")
+            if not any(o["status"] == "INTENT" for o in orders.orders_for_run(conn, run_id)):
+                raise ValidationError(f"run {run_id} has nothing left to discard")
+            self._retire(conn, run_id, f"plan discarded by {actor} before release")
             accounts.audit(
                 conn, actor=actor, action="run_discarded", entity="run", entity_id=run_id
             )
 
     # ================================================================ helpers
+    def _log_error(self, run_id: int, stage: str, exc: Exception) -> None:
+        with transaction(self.engine.pool) as conn:
+            runs.log(
+                conn,
+                run_id,
+                level="ERROR",
+                stage=stage,
+                message=f"{type(exc).__name__}: {exc}",
+                context={"gate": getattr(exc, "gate", None)},
+            )
+
     def _fail(self, run_id: int, stage: str, exc: Exception) -> None:
         with transaction(self.engine.pool) as conn:
             runs.log(

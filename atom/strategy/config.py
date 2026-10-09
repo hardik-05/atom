@@ -33,6 +33,7 @@ CATEGORY_KEYS = (
     "nav_premium_tolerance_pct",
     "volume_threshold_units",
     "volume_window_days",
+    "shortlist_size",
 )
 ACCOUNT_KEYS = (
     "category_priority",
@@ -65,6 +66,9 @@ class CategoryConfig:
     nav_premium_tolerance_pct: Decimal | None
     volume_threshold_units: Decimal
     volume_window_days: int
+    shortlist_size: int
+    """Volume keys and this one shape the shortlist at sync time; a run reads none of the
+    volume figures, only that the shortlist exists."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -184,12 +188,17 @@ def resolve(
         tolerance = parse("nav_premium_tolerance_pct", raw["nav_premium_tolerance_pct"], _dec)
         volume = parse("volume_threshold_units", raw["volume_threshold_units"], _dec)
         window = parse("volume_window_days", raw["volume_window_days"], _int)
+        size = parse("shortlist_size", raw["shortlist_size"], _int)
 
         # CONFIGURATION-MODEL.md section 5 — rejected, not discovered at run time.
         if target is not None and not (0 < target <= 100):
             invalid.append(f"profit_target_pct [{cat}] must be > 0 and <= 100, got {target}")
         if depth is not None and not (1 <= depth <= 20):
             invalid.append(f"depth_levels [{cat}] must be 1-20, got {depth}")
+        if size is not None and not (1 <= size <= 500):
+            invalid.append(f"shortlist_size [{cat}] must be 1-500, got {size}")
+        if size is not None and depth is not None and size < depth:
+            invalid.append(f"shortlist_size [{cat}] {size} is below depth_levels {depth}")
         if amount is not None and amount <= 0:
             invalid.append(f"trade_amount_inr [{cat}] must be positive, got {amount}")
         if lookback is not None and lookback < 2:
@@ -203,7 +212,17 @@ def resolve(
         if window is not None and window < 1:
             invalid.append(f"volume_window_days [{cat}] must be at least 1, got {window}")
 
-        if buying and None in (target, depth, amount, lookback, method, nav_on, volume, window):
+        if buying and None in (
+            target,
+            depth,
+            amount,
+            lookback,
+            method,
+            nav_on,
+            volume,
+            window,
+            size,
+        ):
             continue  # already reported as missing or invalid
         categories[cat] = CategoryConfig(
             category=cat,
@@ -218,6 +237,7 @@ def resolve(
             nav_premium_tolerance_pct=tolerance,
             volume_threshold_units=volume if volume is not None else Decimal(0),
             volume_window_days=window or 0,
+            shortlist_size=size or 0,
         )
 
     priority_raw = account("category_priority")

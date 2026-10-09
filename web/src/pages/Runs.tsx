@@ -5,24 +5,36 @@ import { useApp } from "../context";
 import { day, inr, pct, price, qty, when } from "../format";
 import { Badge, Button, Card, ConfirmDialog, Empty, ErrorNote, Loading, Mono, Notice, PageHeader, TableBox, statusTone, useAction, useAsync } from "../ui";
 
+type PlanOutcome = {
+  run_id: number;
+  sells_sent: number;
+  sells_error: string | null;
+  buy_error: string | null;
+};
+
 export function RunsPage() {
   const app = useApp();
   const navigate = useNavigate();
   const list = useAsync(() => api.get<Run[]>("/runs"), []);
   const action = useAction();
 
+  const [planned, setPlanned] = useState<PlanOutcome | null>(null);
+
   async function plan() {
+    setPlanned(null);
     const r = await action.act(() =>
-      api.post<{ run_id: number }>("/runs/plan", { account_id: app.accountId, universe_id: app.universeId }),
+      api.post<PlanOutcome>("/runs/plan", { account_id: app.accountId, universe_id: app.universeId }),
     );
-    if (r) navigate(`/runs/${r.run_id}`);
+    if (!r) return;
+    if (r.buy_error || r.sells_error) setPlanned(r);
+    else navigate(`/runs/${r.run_id}`);
   }
 
   return (
     <>
       <PageHeader
         title="Execute"
-        subtitle="Plan computes every decision and writes each order as an intent. Nothing reaches the broker until you release it."
+        subtitle="Execute sends today's sells straight away, then plans the buys from the shortlist. Buys reach the broker only when you release them, once a day."
         actions={
           <Button variant="primary" onClick={plan} busy={action.busy} disabled={!app.accountId || !app.universeId}>
             Plan today's run
@@ -40,6 +52,18 @@ export function RunsPage() {
         </div>
       )}
       <ErrorNote error={action.error} onDismiss={action.clear} />
+      {planned && (
+        <div className="mb-3">
+          <Notice tone="warn">
+            {planned.sells_sent > 0 && <>{planned.sells_sent} sell order(s) were sent. </>}
+            {planned.sells_error && <>Sells did not go out: {planned.sells_error}. </>}
+            {planned.buy_error && <>No buy plan was made: {planned.buy_error}. </>}
+            <a className="underline" onClick={() => navigate(`/runs/${planned.run_id}`)}>
+              Open run #{planned.run_id}
+            </a>
+          </Notice>
+        </div>
+      )}
       <Card title="Runs" className="mt-4" pad={false}>
         {list.loading && !list.data && <Loading />}
         {list.data && list.data.length === 0 && (
@@ -296,8 +320,8 @@ export function RunDetailPage() {
         consequence={
           live ? (
             <>
-              ATOM first cancels its own resting GTT sells for this universe and verifies they are gone, then places these orders at{" "}
-              {run.broker_code} from this account's registered address. Buys total {inr(buyValue)}. Orders are limit orders; a buy the broker
+              Today's sells were sent when this plan was made. Releasing sends only the buys, at {run.broker_code} from this account's
+              registered address, and uses the day's one release. Buys total {inr(buyValue)}. Orders are limit orders; a buy the broker
               rejects for funds is recorded and the rest continue.
             </>
           ) : (
@@ -317,7 +341,7 @@ export function RunDetailPage() {
       <ConfirmDialog
         open={confirm === "discard"}
         title="Discard this plan"
-        consequence="Every intent is cancelled before anything is sent and the run is marked FAILED, which frees today's slot so a fresh plan can be made."
+        consequence="Every unsent intent is cancelled; a run that sent nothing is marked FAILED, which frees today's release so a fresh plan can be made. Sells already sent are not recalled."
         confirmLabel="Discard"
         tone="danger"
         busy={action.busy}

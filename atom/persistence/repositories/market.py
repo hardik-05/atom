@@ -211,3 +211,27 @@ def latest_navs(
         (instrument_ids, on_or_before),
     )
     return {int(r["instrument_id"]): r for r in rows}
+
+
+def average_volumes(
+    conn: Conn, instrument_ids: list[int], *, window: int, before: date
+) -> dict[int, tuple[Decimal, int]]:
+    """``{instrument_id: (average volume, days counted)}`` over the last ``window`` bars
+    strictly before ``before`` that carry a volume."""
+    if not instrument_ids:
+        return {}
+    rows = fetch_all(
+        conn,
+        """
+        SELECT instrument_id, avg(volume)::numeric AS avg_volume, count(*) AS days FROM (
+            SELECT p.instrument_id, p.volume, row_number() OVER (
+                PARTITION BY p.instrument_id ORDER BY p.trade_date DESC) AS rn
+            FROM atom.price_daily p
+            WHERE p.instrument_id = ANY(%s) AND p.trade_date < %s AND p.volume IS NOT NULL
+        ) ranked
+        WHERE rn <= %s
+        GROUP BY instrument_id
+        """,
+        (instrument_ids, before, window),
+    )
+    return {int(r["instrument_id"]): (Decimal(r["avg_volume"]), int(r["days"])) for r in rows}

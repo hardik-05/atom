@@ -7,6 +7,9 @@
 > A **run** is one `(trading_account, universe, trade_date)` execution. It is the unit of
 > atomicity, the unit of logging, and the unit of P&L. One run per universe per account per day
 > (D-172), enforced by a partial unique index.
+>
+> **Amended by D-211:** several *plans* may be made in a day, each superseding the last, but only
+> one may be *released*. The index is on the release (`run.released_at`), not on the run.
 
 ---
 
@@ -127,7 +130,8 @@ the authorisation flow every time".
 | Instrument sync | each broker's master | Daily, ~08:30 IST. Public and token-free on Groww, Upstox, Dhan |
 | Resolve to `instrument_id` | **ISIN** | Never symbol, except Zerodha's curated seed (D-187) |
 | Tradability | broker flags | Groww `buy_allowed` · Upstox suspended file · Dhan `BUY_SELL_INDICATOR` |
-| Prices | **one provider for all accounts** (D-044) | Zerodha, Dhan and Shoonya all cap quotes at ~1/sec |
+| Shortlist | `universe_shortlist`, built at Sync (D-210) | Volume decides membership **there and nowhere else** |
+| Prices | live quotes for the shortlist and holdings, plus the last `lookback_days` closes fetched from the **account's own broker** at Execute (D-210) | Supersedes the shared once-a-day pool of D-044; history sync no longer feeds the buy decision |
 | NAV | AMFI / AMC | For the NAV-premium gate |
 | `tick_size` | **ATOM's own reference data** (D-209) | Broker fields cross-checked, never used for pricing |
 
@@ -220,10 +224,14 @@ anomaly.
 ## 7. Phase 4 — Buy pass
 
 ```
-for each instrument in the universe snapshot:
+for each category, in category_priority order:
+  for each instrument in the category's SHORTLIST, most negative deviation first:
     deviation = (ltp − mean) / mean                    ← mean on the SYNTHETIC basis
-    gates: liquidity → NAV premium → freeze/exclusion → one-lot-per-day
+    gates: NAV premium → freeze/exclusion → one-lot-per-day
            → proxy-block → tradability → funds
+    stop once depth_levels buys have been made; a skipped candidate lets the next one in
+
+(No volume gate: volume built the shortlist at Sync and plays no part in a run — D-210.)
     quantity = floor(trade_amount × budget_buffer_pct / ltp)
     place LIMIT BUY
 ```
@@ -231,6 +239,14 @@ for each instrument in the universe snapshot:
 Every candidate writes a `run_candidate` row **whether it was bought or not**, carrying every
 gate's input and verdict plus `decision` and `decision_reason` (D-035). The decision is
 reconstructible from SQL alone, with no log parsing.
+
+### 7.0 Sells go first and alone, buys wait for the release (D-211)
+
+Execute plans the **sells and sends them at once** (cancel-all → verify → place tranche GTTs). A
+problem on the buy side — no shortlist, no prices — is recorded on the run and **never blocks the
+sells**. The buy orders are written as intents and sent only when the operator **releases** them.
+A day has one release; sells are sent once a day, by the first plan, and later plans in the same
+day are buys-only.
 
 ### 7.1 Quantity (D-059b, confirmed 2026-09-26)
 

@@ -26,6 +26,7 @@ from atom.orchestration.engine import Engine, close_adapter
 from atom.orchestration.jobs import Job
 from atom.persistence.db import transaction
 from atom.persistence.repositories import accounts, config, instruments, market, orders, universes
+from atom.strategy import shortlist
 
 DATA_DIR = Path(__file__).resolve().parents[2] / "data"
 REFERENCE_CSV = DATA_DIR / "reference" / "etf-reference-data-2026-09-20.csv"
@@ -372,7 +373,9 @@ class DataService:
             failed = [
                 {"symbol": o.task.symbol, "error": o.error} for o in outcomes if o.error is not None
             ]
+            shortlists = self._build_shortlists(conn, acct, universe_ids, today)
             return {
+                "shortlists": shortlists,
                 "window": [wanted_from.isoformat(), end.isoformat()],
                 "instruments": len(members),
                 "already_current": current,
@@ -385,6 +388,66 @@ class DataService:
             }
 
         return self._with_adapter(account_id, run)
+
+    @staticmethod
+    def _build_shortlists(
+        conn: Any, acct: dict[str, Any], universe_ids: list[int], today: date
+    ) -> list[dict[str, Any]]:
+        """Rebuild each category's shortlist from the volume now in ``price_daily``."""
+        account_id = int(acct["trading_account_id"])
+        report: list[dict[str, Any]] = []
+        for universe_id in universe_ids:
+            stored = {
+                (v["key_name"], v["category_code"]): v["value_text"]
+                for v in config.account_values(conn, account_id, universe_id)
+                if v["is_configured"] and v["value_text"] is not None
+            }
+            members = universes.current_members(conn, universe_id, broker_id=acct["broker_id"])
+            for category in universes.categories(conn, universe_id):
+                try:
+                    size = int(stored[("shortlist_size", category)])
+                    window = int(stored[("volume_window_days", category)])
+                    threshold = Decimal(stored[("volume_threshold_units", category)])
+                except (KeyError, ValueError, ArithmeticError):
+                    report.append(
+                        {
+                            "universe_id": universe_id,
+                            "category": category,
+                            "skipped": "shortlist_size, volume_window_days or "
+                            "volume_threshold_units is not configured",
+                        }
+                    )
+                    continue
+                pool = [
+                    m
+                    for m in members
+                    if m["category"] == category and m["broker_token"] and m["tradable"]
+                ]
+                symbols = {int(m["instrument_id"]): str(m["symbol"]) for m in pool}
+                volumes = market.average_volumes(conn, list(symbols), window=window, before=today)
+                chosen = shortlist.pick(
+                    volumes, symbols, size=size, window=window, threshold=threshold
+                )
+                universes.replace_shortlist(
+                    conn,
+                    account_id=account_id,
+                    universe_id=universe_id,
+                    category=category,
+                    rows=chosen,
+                )
+                report.append(
+                    {
+                        "universe_id": universe_id,
+                        "category": category,
+                        "wanted": size,
+                        "chosen": len(chosen),
+                        "candidates": len(pool),
+                        "short_of_volume_history": sum(
+                            1 for iid in symbols if volumes.get(iid, (0, 0))[1] < window
+                        ),
+                    }
+                )
+        return report
 
     def sync_nav(self, job: Job) -> dict[str, Any]:
         job.update(message="downloading AMFI NAV file")
