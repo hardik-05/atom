@@ -879,6 +879,7 @@ class ReferenceService:
                     name=ref["SCHEME_NAME"] or ref["SYMBOL"],
                     instrument_type="ETF",
                     asset_class=ASSET_CLASS[b["NSE_CATEGORY"]],
+                    reference=True,
                 )
                 instruments.upsert_classification(
                     conn,

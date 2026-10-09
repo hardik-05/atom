@@ -162,6 +162,9 @@ class SyncHistoryBody(BaseModel):
     days: int = Field(ge=5, le=1500)
 
 
+SHORTLIST_KEYS = {"shortlist_size", "volume_window_days", "volume_threshold_units"}
+
+
 class SyncAllBody(BaseModel):
     account_id: int
     universe_id: int
@@ -823,6 +826,10 @@ def create_app(engine: Engine, jobs: JobRunner) -> FastAPI:
         config_service.set_values(
             body.account_id, body.universe_id, [c.model_dump() for c in body.changes], actor=user
         )
+        if any(c.key_name in SHORTLIST_KEYS for c in body.changes):
+            # D-213: the stored shortlist follows its configuration at once. Database only;
+            # a longer volume window may still need Sync all to fetch the extra history.
+            data.rebuild_shortlists(body.account_id, [body.universe_id])
         return _json(config_service.view(body.account_id, body.universe_id))
 
     # ----------------------------------------------------------------- runs

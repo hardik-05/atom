@@ -30,11 +30,17 @@ def upsert_instrument(
     exchange: str = "NSE",
     status: str = "ACTIVE",
     status_reason: str | None = None,
+    reference: bool = False,
 ) -> int:
     """Insert, or refresh the descriptive fields of, one instrument.
 
     ``status`` is written only on INSERT. An instrument an operator has BLOCKED
     must not be silently reactivated because a reference file was re-imported.
+
+    ``reference``: the caller is the reference import, which is authoritative for the
+    asset class and type. An instrument first met as a broker holding was registered
+    as EQUITY / REVIEW before the reference knew it (D-214); the import corrects the
+    class and lifts REVIEW to ACTIVE. Any other status is left as it is.
     """
     row = fetch_exactly_one(
         conn,
@@ -46,7 +52,18 @@ def upsert_instrument(
         ON CONFLICT (isin, exchange) DO UPDATE SET
             symbol    = EXCLUDED.symbol,
             name      = EXCLUDED.name,
-            tick_size = COALESCE(EXCLUDED.tick_size, atom.instrument.tick_size)
+            tick_size = COALESCE(EXCLUDED.tick_size, atom.instrument.tick_size),
+            asset_class = CASE WHEN %s THEN EXCLUDED.asset_class
+                               ELSE atom.instrument.asset_class END,
+            instrument_type = CASE WHEN %s THEN EXCLUDED.instrument_type
+                                   ELSE atom.instrument.instrument_type END,
+            status = CASE WHEN %s AND atom.instrument.status = 'REVIEW' THEN 'ACTIVE'
+                          ELSE atom.instrument.status END,
+            status_reason = CASE WHEN %s AND atom.instrument.status = 'REVIEW'
+                                 THEN 'classified by the reference import'
+                                 ELSE atom.instrument.status_reason END,
+            status_changed_at = CASE WHEN %s AND atom.instrument.status = 'REVIEW' THEN now()
+                                     ELSE atom.instrument.status_changed_at END
         RETURNING instrument_id
         """,
         (
@@ -59,6 +76,7 @@ def upsert_instrument(
             tick_size,
             status,
             status_reason,
+            *[reference] * 5,
         ),
     )
     return int(row["instrument_id"])

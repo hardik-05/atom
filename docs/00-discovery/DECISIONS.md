@@ -3004,3 +3004,13 @@ marked IN and every other member says why it is out (unmapped, suspended, short 
 threshold, outside the top N). When the saved configuration would now pick a different list the
 page says so. The viable-universe keys stay on the Configuration page, in their own card. The
 Universe & data page is unchanged. Prices at Execute are still fetched only for the shortlist.
+Saving any of the three viable-universe keys rebuilds the stored shortlist at once (database only);
+a longer `volume_window_days` may still need Sync all to fetch the extra history.
+
+**D-214 — The reference import is authoritative for asset class.** An ETF first met as a broker
+holding is registered before the reference knows it, as EQUITY with status REVIEW. The import's
+upsert kept both, so TATAGOLD, GOLDCASE and SILVERAXIS sat in EQUITY instead of COMMODITY,
+MAHKTECH and HNGSNGBEES in EQUITY instead of GLOBAL, and all 23 such ETFs failed the tradability
+gate. The import now overwrites `asset_class` and `instrument_type`, and lifts REVIEW to ACTIVE
+(reason "classified by the reference import"); BLOCKED and any other status are left alone.
+Migration 0022 corrects the rows already written.
