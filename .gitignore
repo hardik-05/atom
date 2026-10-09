@@ -51,3 +51,7 @@ frontend/dist/
 
 # Lambda package built at plan time
 infra/terraform/.build/
+
+# saved terraform plans can contain secret values
+tfplan
+*.tfplan
