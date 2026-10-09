@@ -20,7 +20,7 @@ from typing import Any, TypeVar
 
 from atom.adapters import amfi
 from atom.domain.errors import AuthError, ValidationError
-from atom.infra.clock import today_ist
+from atom.infra.clock import IST, today_ist
 from atom.orchestration import history
 from atom.orchestration.engine import Engine, close_adapter
 from atom.orchestration.jobs import Job
@@ -301,7 +301,13 @@ class DataService:
             return [int(u["universe_id"]) for u in universes.list_universes(conn)]
 
     def sync_history(
-        self, job: Job, *, account_id: int, universe_ids: list[int], days: int
+        self,
+        job: Job,
+        *,
+        account_id: int,
+        universe_ids: list[int],
+        days: int,
+        build_shortlist: bool = True,
     ) -> dict[str, Any]:
         """Bring every member's daily bars up to yesterday, fetching only the gaps.
 
@@ -327,10 +333,15 @@ class DataService:
 
             tasks: list[history.Task] = []
             unmapped: list[str] = []
+            suspended: list[str] = []
             current = 0
             for iid, m in members.items():
                 if not m["broker_token"]:
                     unmapped.append(m["symbol"])
+                    continue
+                if not m["tradable"]:
+                    # Cannot be bought, so its volume can never qualify it: not fetched.
+                    suspended.append(m["symbol"])
                     continue
                 cov, st = have.get(iid) or {}, state.get(iid) or {}
                 ranges = history.plan_ranges(
@@ -373,7 +384,9 @@ class DataService:
             failed = [
                 {"symbol": o.task.symbol, "error": o.error} for o in outcomes if o.error is not None
             ]
-            shortlists = self._build_shortlists(conn, acct, universe_ids, today)
+            shortlists = (
+                self._build_shortlists(conn, acct, universe_ids, today) if build_shortlist else []
+            )
             return {
                 "shortlists": shortlists,
                 "window": [wanted_from.isoformat(), end.isoformat()],
@@ -384,10 +397,165 @@ class DataService:
                 "bars_written": written,
                 "failed": failed,
                 "unmapped": unmapped,
+                "suspended": suspended,
                 "seconds": round(time.monotonic() - started, 1),
             }
 
         return self._with_adapter(account_id, run)
+
+    @staticmethod
+    def _shortlist_settings(
+        conn: Any, account_id: int, universe_id: int
+    ) -> dict[str, tuple[int, int, Decimal] | None]:
+        """``{category: (size, window, threshold)}``; None where a key is not configured."""
+        stored = {
+            (v["key_name"], v["category_code"]): v["value_text"]
+            for v in config.account_values(conn, account_id, universe_id)
+            if v["is_configured"] and v["value_text"] is not None
+        }
+        out: dict[str, tuple[int, int, Decimal] | None] = {}
+        for category in universes.categories(conn, universe_id):
+            try:
+                out[category] = (
+                    int(stored[("shortlist_size", category)]),
+                    int(stored[("volume_window_days", category)]),
+                    Decimal(stored[("volume_threshold_units", category)]),
+                )
+            except (KeyError, ValueError, ArithmeticError):
+                out[category] = None
+        return out
+
+    def rebuild_shortlists(self, account_id: int, universe_ids: list[int]) -> list[dict[str, Any]]:
+        with transaction(self.engine.pool) as conn:
+            acct = accounts.get_account(conn, account_id)
+            return self._build_shortlists(conn, acct, universe_ids, today_ist())
+
+    def history_days(self, account_id: int, universe_id: int) -> int:
+        """Calendar days of history the volume windows need: trading days are about 5 in 7,
+        less holidays, so 1.6x the longest window plus a margin."""
+        with transaction(self.engine.pool) as conn:
+            settings = self._shortlist_settings(conn, account_id, universe_id)
+        windows = [s[1] for s in settings.values() if s is not None]
+        return max(30, int(max(windows, default=0) * 1.6) + 15)
+
+    def sync_all(
+        self, job: Job, *, account_id: int, universe_id: int, reference: ReferenceService
+    ) -> dict[str, Any]:
+        """D-213. One button: instrument master, then history (only the gaps), then NAV, then
+        the shortlist from the configuration as it stands now."""
+        started = time.monotonic()
+        with transaction(self.engine.pool) as conn:
+            acct = accounts.get_account(conn, account_id)
+        out: dict[str, Any] = {}
+        job.update(message="1/4 instrument master")
+        out["master"] = reference.sync_instruments(job, broker_code=acct["broker_code"])
+        days = self.history_days(account_id, universe_id)
+        job.update(message=f"2/4 history, {days} days", progress=0, total=None)
+        out["history"] = self.sync_history(
+            job, account_id=account_id, universe_ids=[universe_id], days=days, build_shortlist=False
+        )
+        job.update(message="3/4 NAV", progress=None, total=None)
+        try:
+            out["nav"] = self.sync_nav(job)
+        except Exception as exc:  # NAV does not decide the shortlist; report and carry on
+            out["nav"] = {"error": f"{type(exc).__name__}: {exc}"}
+        job.update(message="4/4 shortlist")
+        out["shortlists"] = self.rebuild_shortlists(account_id, [universe_id])
+        out["seconds"] = round(time.monotonic() - started, 1)
+        return out
+
+    def buyable(self, account_id: int, universe_id: int) -> dict[str, Any]:
+        """Every member of each category with its average volume, the stored shortlist marked
+        IN, and why each other one is out. Read from the database only."""
+        today = today_ist()
+        with transaction(self.engine.pool) as conn:
+            acct = accounts.get_account(conn, account_id)
+            settings = self._shortlist_settings(conn, account_id, universe_id)
+            members = universes.current_members(conn, universe_id, broker_id=acct["broker_id"])
+            stored = universes.shortlist(conn, account_id=account_id, universe_id=universe_id)
+            cats = []
+            for category, setting in settings.items():
+                rows_in = {int(r["instrument_id"]): r for r in stored.get(category, [])}
+                built = [r["built_at"] for r in rows_in.values()]
+                cat_members = [m for m in members if m["category"] == category]
+                ids = [int(m["instrument_id"]) for m in cat_members]
+                volumes: dict[int, tuple[Decimal, int]] = {}
+                live: dict[int, int] = {}
+                if setting is not None:
+                    size, window, threshold = setting
+                    volumes = market.average_volumes(conn, ids, window=window, before=today)
+                    pool = {
+                        int(m["instrument_id"]): str(m["symbol"])
+                        for m in cat_members
+                        if m["broker_token"] and m["tradable"]
+                    }
+                    live = {
+                        iid: rank
+                        for iid, rank, _, _ in shortlist.pick(
+                            {i: v for i, v in volumes.items() if i in pool},
+                            pool,
+                            size=size,
+                            window=window,
+                            threshold=threshold,
+                        )
+                    }
+                rows = []
+                for m in cat_members:
+                    iid = int(m["instrument_id"])
+                    avg, vdays = volumes.get(iid, (None, 0))
+                    if iid in rows_in:
+                        avg = rows_in[iid]["avg_volume"] if avg is None else avg
+                    reason = None
+                    if iid not in rows_in:
+                        if not m["broker_token"]:
+                            reason = "not mapped at the broker"
+                        elif not m["tradable"]:
+                            reason = "suspended at the broker"
+                        elif setting is None:
+                            reason = "shortlist not configured"
+                        elif vdays < setting[1]:
+                            reason = f"only {vdays} of {setting[1]} days of volume"
+                        elif avg is not None and avg < setting[2]:
+                            reason = "average volume below the threshold"
+                        elif iid in live:
+                            reason = "would be in after a rebuild"
+                        else:
+                            reason = f"outside the top {setting[0]}"
+                    rows.append(
+                        {
+                            "instrument_id": iid,
+                            "symbol": m["symbol"],
+                            "name": m["name"],
+                            "member_status": m["member_status"],
+                            "avg_volume": avg,
+                            "volume_days": vdays,
+                            "rank": rows_in[iid]["rank"] if iid in rows_in else None,
+                            "in_shortlist": iid in rows_in,
+                            "reason": reason,
+                        }
+                    )
+                rows.sort(
+                    key=lambda r: (
+                        r["rank"] is None,
+                        r["rank"] or 0,
+                        -(r["avg_volume"] or 0),
+                        str(r["symbol"]),
+                    )
+                )
+                cats.append(
+                    {
+                        "category": category,
+                        "shortlist_size": setting[0] if setting else None,
+                        "volume_window_days": setting[1] if setting else None,
+                        "volume_threshold_units": setting[2] if setting else None,
+                        "built_at": max(built) if built else None,
+                        "in_count": len(rows_in),
+                        "stale": setting is not None and set(live) != set(rows_in),
+                        "rows": rows,
+                    }
+                )
+        out: dict[str, Any] = _jsonable({"as_of": today, "categories": cats})
+        return out
 
     @staticmethod
     def _build_shortlists(
@@ -397,18 +565,10 @@ class DataService:
         account_id = int(acct["trading_account_id"])
         report: list[dict[str, Any]] = []
         for universe_id in universe_ids:
-            stored = {
-                (v["key_name"], v["category_code"]): v["value_text"]
-                for v in config.account_values(conn, account_id, universe_id)
-                if v["is_configured"] and v["value_text"] is not None
-            }
+            settings = DataService._shortlist_settings(conn, account_id, universe_id)
             members = universes.current_members(conn, universe_id, broker_id=acct["broker_id"])
-            for category in universes.categories(conn, universe_id):
-                try:
-                    size = int(stored[("shortlist_size", category)])
-                    window = int(stored[("volume_window_days", category)])
-                    threshold = Decimal(stored[("volume_threshold_units", category)])
-                except (KeyError, ValueError, ArithmeticError):
+            for category, setting in settings.items():
+                if setting is None:
                     report.append(
                         {
                             "universe_id": universe_id,
@@ -418,6 +578,7 @@ class DataService:
                         }
                     )
                     continue
+                size, window, threshold = setting
                 pool = [
                     m
                     for m in members
@@ -487,6 +648,197 @@ class DataService:
             )
             for m in members
         ]
+
+
+class HoldingService:
+    """D-212. Which holdings ATOM may sell: one switch per instrument.
+
+    ON for what ATOM bought, OFF for what it found at onboarding (D-137). Switching a bot
+    holding OFF freezes its open lots (D-062); ON releases the freeze. Switching a manual
+    holding ON adopts it: the exclusion is released and an EXTERNAL lot is opened at the
+    broker's average price, after which it is sold exactly like an ATOM lot.
+    """
+
+    def __init__(self, engine: Engine) -> None:
+        self.engine = engine
+
+    def controls(self, account_id: int) -> list[dict[str, Any]]:
+        with transaction(self.engine.pool) as conn:
+            lots = orders.open_lots(conn, account_id=account_id)
+            rows = orders.active_exclusions(conn, account_id)
+            names = {
+                int(r["instrument_id"]): r
+                for r in instruments.by_ids(
+                    conn, sorted({lot.instrument_id for lot in lots}), broker_id=None
+                )
+            }
+        by: dict[int, dict[str, Any]] = {}
+
+        def row(iid: int) -> dict[str, Any]:
+            return by.setdefault(
+                iid,
+                {
+                    "instrument_id": iid,
+                    "symbol": None,
+                    "name": None,
+                    "atom_quantity": 0,
+                    "external_quantity": 0,
+                    "excluded_quantity": 0,
+                    "frozen_quantity": 0,
+                    "cost": Decimal(0),
+                    "acquired_from": None,
+                },
+            )
+
+        for lot in lots:
+            r = row(lot.instrument_id)
+            key = "external_quantity" if lot.provenance.value == "EXTERNAL" else "atom_quantity"
+            r[key] += lot.quantity_open
+            r["cost"] += lot.unit_cost * lot.quantity_open
+            if r["acquired_from"] is None or lot.acquired_on < r["acquired_from"]:
+                r["acquired_from"] = lot.acquired_on
+            meta = names.get(lot.instrument_id, {})
+            r["symbol"], r["name"] = meta.get("symbol"), meta.get("name")
+        for e in rows:
+            r = row(int(e["instrument_id"]))
+            key = "frozen_quantity" if e["exclusion_type"] == "FREEZE" else "excluded_quantity"
+            r[key] += int(e["quantity"])
+            r["symbol"], r["name"] = e["symbol"], e["name"]
+        out = []
+        for r in by.values():
+            lot_qty = r["atom_quantity"] + r["external_quantity"]
+            if r["atom_quantity"] and r["external_quantity"]:
+                source = "ATOM_AND_MANUAL"
+            elif r["atom_quantity"]:
+                source = "ATOM"
+            elif r["external_quantity"]:
+                source = "MANUAL_ADOPTED"
+            else:
+                source = "MANUAL"
+            cost = r.pop("cost")
+            r["average_cost"] = (cost / lot_qty).quantize(Decimal("0.0001")) if lot_qty else None
+            r["source"] = source
+            r["sell_enabled"] = lot_qty > 0 and r["frozen_quantity"] == 0
+            out.append(r)
+        out.sort(key=lambda r: str(r["symbol"]))
+        return [_jsonable(r) for r in out]
+
+    def set_sell(
+        self, account_id: int, instrument_id: int, *, enabled: bool, universe_id: int, actor: str
+    ) -> dict[str, Any]:
+        with transaction(self.engine.pool) as conn:
+            acct = accounts.get_account(conn, account_id)
+            lots = [
+                lot
+                for lot in orders.open_lots(conn, account_id=account_id)
+                if lot.instrument_id == instrument_id
+            ]
+            rows = [
+                e
+                for e in orders.active_exclusions(conn, account_id)
+                if int(e["instrument_id"]) == instrument_id
+            ]
+            freezes = [e for e in rows if e["exclusion_type"] == "FREEZE"]
+            exclusions = [e for e in rows if e["exclusion_type"] == "EXCLUSION"]
+            lot_qty = sum(lot.quantity_open for lot in lots)
+            done: dict[str, Any] = {"instrument_id": instrument_id, "enabled": enabled}
+            if not enabled:
+                if lot_qty == 0:
+                    raise ValidationError("nothing of this holding is ATOM's to hold back")
+                for e in freezes:
+                    orders.release_exclusion(conn, int(e["account_exclusion_id"]))
+                orders.add_exclusion(
+                    conn,
+                    account_id=account_id,
+                    instrument_id=instrument_id,
+                    exclusion_type="FREEZE",
+                    quantity=lot_qty,
+                    created_by=f"holding-switch:{actor}",
+                )
+                done["frozen"] = lot_qty
+            else:
+                for e in freezes:
+                    orders.release_exclusion(conn, int(e["account_exclusion_id"]))
+                done["unfrozen"] = sum(int(e["quantity"]) for e in freezes)
+                if exclusions:
+                    done["adopted"] = self._adopt(
+                        conn, acct, instrument_id, universe_id, exclusions, lot_qty
+                    )
+                elif lot_qty == 0:
+                    raise ValidationError("ATOM holds nothing of this instrument")
+            accounts.audit(
+                conn,
+                actor=actor,
+                action="holding_sell_enabled" if enabled else "holding_sell_disabled",
+                entity="trading_account",
+                entity_id=account_id,
+                payload=_jsonable(done),
+            )
+        return done
+
+    def _adopt(
+        self,
+        conn: Any,
+        acct: dict[str, Any],
+        instrument_id: int,
+        universe_id: int,
+        exclusions: list[dict[str, Any]],
+        lot_qty: int,
+    ) -> dict[str, Any]:
+        """Turn a manual holding into an EXTERNAL lot ATOM sells (D-212)."""
+        account_id = int(acct["trading_account_id"])
+        if acct["execution_mode"] != "LIVE":
+            raise ValidationError("only a LIVE account holds real shares to adopt")
+        member = next(
+            (
+                m
+                for m in universes.current_members(conn, universe_id, broker_id=acct["broker_id"])
+                if int(m["instrument_id"]) == instrument_id
+            ),
+            None,
+        )
+        if member is None or member["category"] is None:
+            raise ValidationError(
+                "this ETF is not in a category of the selected universe, so it has no profit "
+                "target to sell at"
+            )
+        ref = accounts.account_ref(conn, account_id, today_ist())
+        adapter = self.engine.adapter(acct["broker_code"], conn)
+        try:
+            held = adapter.fetch_holdings(ref) + adapter.fetch_positions(ref)
+        finally:
+            close_adapter(adapter)
+        mine = [h for h in held if h.instrument_id == instrument_id]
+        broker_total = sum(h.total_quantity for h in mine)
+        priced = [h for h in mine if h.average_price and h.average_price > 0 and h.total_quantity]
+        if not priced:
+            raise ValidationError("the broker reports no average price for this holding")
+        avg = (
+            sum((Decimal(h.average_price) * h.total_quantity for h in priced), Decimal(0))
+            / sum(h.total_quantity for h in priced)
+        ).quantize(Decimal("0.0001"))
+        excluded = sum(int(e["quantity"]) for e in exclusions)
+        quantity = min(excluded, broker_total - lot_qty)
+        if quantity <= 0:
+            raise ValidationError(
+                f"the broker holds {broker_total} and ATOM's lots already account for {lot_qty}"
+            )
+        for e in exclusions:
+            orders.release_exclusion(conn, int(e["account_exclusion_id"]))
+        acquired = min(e["created_at"] for e in exclusions).astimezone(IST).date()
+        lot_id = orders.insert_lot(
+            conn,
+            account_id=account_id,
+            universe_id=universe_id,
+            instrument_id=instrument_id,
+            buy_order_id=None,
+            fill_id=None,
+            quantity=quantity,
+            unit_cost=avg,
+            acquired_on=acquired,
+            provenance="EXTERNAL",
+        )
+        return {"lot_id": lot_id, "quantity": quantity, "unit_cost": avg, "acquired_on": acquired}
 
 
 class ReferenceService:

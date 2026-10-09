@@ -4,7 +4,7 @@ import { useApp } from "../context";
 import { day, price } from "../format";
 import { Badge, Button, Card, ConfirmDialog, Empty, ErrorNote, Loading, Notice, PageHeader, TableBox, inputCls, statusTone, useAction, useAsync } from "../ui";
 
-function useJob(onDone: () => void) {
+export function useJob(onDone: () => void) {
   const [job, setJob] = useState<Job | null>(null);
   useEffect(() => {
     if (!job || job.status === "DONE" || job.status === "FAILED") return;
@@ -20,7 +20,7 @@ function useJob(onDone: () => void) {
   return [job, setJob] as const;
 }
 
-function JobLine({ job }: { job: Job | null }) {
+export function JobLine({ job }: { job: Job | null }) {
   if (!job) return null;
   const pctDone = job.total ? Math.round((job.progress / job.total) * 100) : null;
   return (

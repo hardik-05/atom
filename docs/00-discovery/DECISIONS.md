@@ -2976,3 +2976,31 @@ sent as soon as Execute runs, by the first plan of the day, and never wait on or
 buys. Buys are written as intents and sent on Release. Any number of plans may be made in a day
 (each supersedes the last); one release per account and universe per day is enforced by the unique
 index on `run.released_at`. Supersedes D-057e's `allow_multiple_runs_per_day` and amends D-172.
+
+**D-212 — One sell switch per holding; a manual holding can be handed to ATOM.** *(Amends D-137;
+uses D-062's lots and freezes, needs no new table.)* The Positions page lists every holding ATOM
+knows of, labelled bought by ATOM, bought manually, or both, with a switch:
+
+| Holding | Default | Switch OFF | Switch ON |
+|---|---|---|---|
+| Bought by ATOM (ATOM lots) | ON | A FREEZE row for all its open lot quantity: no sell, and no further buys of it | The FREEZE is released |
+| Bought manually (D-137 EXCLUSION) | OFF | — | **Adoption:** the EXCLUSION is released and one EXTERNAL lot opened at the broker's average price, quantity capped at broker total minus ATOM's lots, dated the day it was excluded, in the selected universe |
+
+Once adopted, a holding is sold exactly like ATOM's own: tranche GTTs at Execute, the category's
+`profit_target_pct`, capped by the broker's free quantity. Refused when the account is not LIVE,
+the ETF has no category in the selected universe (so no target), or the broker gives no average
+price. **DRY runs never sell an instrument holding an EXTERNAL lot**: a paper fill would close a real
+lot. Reconciliation now subtracts only EXCLUSION quantity — a FREEZE is quantity already inside
+ATOM's lots, and counting it twice made the residual negative. Every switch is audited.
+The broker's average price stands in for cost; the true acquisition date is unknown, so tax on an
+adopted lot is classified from the date it was excluded.
+
+**D-213 — Sync all, and the Buyable universe page.** One button runs, in order: instrument master,
+price history (only the missing days; enough calendar days for the longest `volume_window_days`;
+suspended instruments are not fetched), AMFI NAV, then the shortlist rebuilt from the configuration
+as saved. A NAV failure is reported and does not stop the rebuild. The **Buyable universe** page shows,
+per category, every member with its average volume and days of history; the stored shortlist is
+marked IN and every other member says why it is out (unmapped, suspended, short history, below
+threshold, outside the top N). When the saved configuration would now pick a different list the
+page says so. The viable-universe keys stay on the Configuration page, in their own card. The
+Universe & data page is unchanged. Prices at Execute are still fetched only for the shortlist.

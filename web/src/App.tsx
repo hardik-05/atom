@@ -8,6 +8,7 @@ import { Overview } from "./pages/Overview";
 import { Tokens, UpstoxCallback } from "./pages/Tokens";
 import { DataLab } from "./pages/DataLab";
 import { UniversePage } from "./pages/Universe";
+import { BuyablePage } from "./pages/Buyable";
 import { ConfigPage } from "./pages/Config";
 import { RunsPage, RunDetailPage } from "./pages/Runs";
 import { PositionsPage } from "./pages/Positions";
@@ -63,6 +64,7 @@ export function App() {
             <Route path="brokers/upstox/callback" element={<UpstoxCallback />} />
             <Route path="data" element={<DataLab />} />
             <Route path="universe" element={<UniversePage />} />
+            <Route path="buyable" element={<BuyablePage />} />
             <Route path="config" element={<ConfigPage />} />
             <Route path="runs" element={<RunsPage />} />
             <Route path="runs/:runId" element={<RunDetailPage />} />

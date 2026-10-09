@@ -46,6 +46,7 @@ from atom.orchestration.services import (
     AUTO_HISTORY_DAYS,
     ConfigService,
     DataService,
+    HoldingService,
     ReferenceService,
     TokenService,
 )
@@ -161,6 +162,16 @@ class SyncHistoryBody(BaseModel):
     days: int = Field(ge=5, le=1500)
 
 
+class SyncAllBody(BaseModel):
+    account_id: int
+    universe_id: int
+
+
+class HoldingSellBody(BaseModel):
+    enabled: bool
+    universe_id: int
+
+
 class SyncInstrumentsBody(BaseModel):
     broker_code: str
 
@@ -198,6 +209,7 @@ def create_app(engine: Engine, jobs: JobRunner) -> FastAPI:
     tokens = TokenService(engine)
     data = DataService(engine)
     reference = ReferenceService(engine)
+    holding_service = HoldingService(engine)
     config_service = ConfigService(engine)
     run_service = RunService(engine)
 
@@ -682,6 +694,27 @@ def create_app(engine: Engine, jobs: JobRunner) -> FastAPI:
         with transaction(engine.pool) as conn:
             return _json(orders.active_exclusions(conn, account_id))
 
+    @api.get("/accounts/{account_id}/holding-controls")
+    def holding_controls(account_id: int) -> Response:
+        return _json(holding_service.controls(account_id))
+
+    @api.put("/accounts/{account_id}/holdings/{instrument_id}/sell")
+    def holding_sell(
+        account_id: int,
+        instrument_id: int,
+        body: HoldingSellBody,
+        user: str = Depends(current_user),
+    ) -> Response:
+        return _json(
+            holding_service.set_sell(
+                account_id,
+                instrument_id,
+                enabled=body.enabled,
+                universe_id=body.universe_id,
+                actor=user,
+            )
+        )
+
     # ---------------------------------------------------- reference, market
     @api.get("/instruments")
     def search_instruments(q: str = "", broker_code: str = "UPSTOX") -> Response:
@@ -710,6 +743,21 @@ def create_app(engine: Engine, jobs: JobRunner) -> FastAPI:
             key=f"history:{body.account_id}",
         )
         return _json(_job(job), 202)
+
+    @api.post("/market/sync-all")
+    def sync_all(body: SyncAllBody) -> Response:
+        job = jobs.submit(
+            "sync_all",
+            lambda j: data.sync_all(
+                j, account_id=body.account_id, universe_id=body.universe_id, reference=reference
+            ),
+            key=f"history:{body.account_id}",
+        )
+        return _json(_job(job), 202)
+
+    @api.get("/universes/{universe_id}/buyable")
+    def buyable(universe_id: int, account_id: int) -> Response:
+        return _json(data.buyable(account_id, universe_id))
 
     @api.post("/market/sync-nav")
     def sync_nav() -> Response:

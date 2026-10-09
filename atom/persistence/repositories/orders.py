@@ -344,12 +344,16 @@ def active_exclusions(conn: Conn, account_id: int) -> list[dict[str, Any]]:
     )
 
 
-def withheld_by_instrument(conn: Conn, account_id: int) -> dict[int, int]:
+def withheld_by_instrument(
+    conn: Conn, account_id: int, *, exclusion_type: str | None = None
+) -> dict[int, int]:
+    """Active withheld quantity per instrument: both kinds, or only ``exclusion_type``."""
     rows = fetch_all(
         conn,
         "SELECT instrument_id, sum(quantity) AS q FROM atom.account_exclusion "
-        "WHERE trading_account_id = %s AND released_at IS NULL GROUP BY instrument_id",
-        (account_id,),
+        "WHERE trading_account_id = %s AND released_at IS NULL "
+        "AND (%s::text IS NULL OR exclusion_type = %s) GROUP BY instrument_id",
+        (account_id, exclusion_type, exclusion_type),
     )
     return {int(r["instrument_id"]): int(r["q"]) for r in rows}
 

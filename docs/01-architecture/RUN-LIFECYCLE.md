@@ -159,6 +159,17 @@ total_quantity  =  Σ open ATOM lots  +  excluded_quantity  +  unattributed_quan
 A negative residual means ATOM believes it holds what it does not, and would place sells the
 broker rejects. It blocks before the sell pass, not after.
 
+`excluded_quantity` counts EXCLUSION rows only. A FREEZE holds back quantity that is already in
+ATOM's lots, so subtracting it as well would double-count it (D-212). Adopted manual holdings are
+EXTERNAL lots and count as ATOM lots here.
+
+### 5.1a The holding sell switch (D-212)
+
+Sellable per instrument = `min(open lots, free_quantity − excluded − frozen)`. Switching a holding
+off freezes all its open lots, so it sells nothing; switching a manual holding on adopts it as an
+EXTERNAL lot. In a **DRY** run, any instrument with an EXTERNAL lot is left out of the sell pass
+and a log line says so: those are real shares, and a paper fill must never close them.
+
 ### 5.2 Sellability
 
 `free_quantity` per instrument, derived per broker — direct on Dhan (`availableQty`) and Groww

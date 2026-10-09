@@ -11,6 +11,7 @@ const NAV: { to: string; label: string; icon: string }[] = [
   { to: "/tokens", label: "Broker tokens", icon: "⚿" },
   { to: "/data", label: "Data lab", icon: "◫" },
   { to: "/universe", label: "Universe & data", icon: "▦" },
+  { to: "/buyable", label: "Buyable universe", icon: "◈" },
   { to: "/config", label: "Configuration", icon: "⚙" },
   { to: "/runs", label: "Execute", icon: "▶" },
   { to: "/positions", label: "Positions", icon: "▤" },

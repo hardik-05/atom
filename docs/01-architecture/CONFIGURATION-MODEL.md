@@ -145,7 +145,7 @@ Every operational number in ATOM. Nothing outside this table may be a literal in
 | `nav_premium_tolerance_pct` | NUMERIC(9,4) | 2.0000 | Max premium over NAV permitted on a buy |
 | `volume_threshold_units` | NUMERIC(18,4) | 100000.0000 | Liquidity floor, in **units** (D-027). Used **only when the shortlist is built** at Sync; never at Execute (D-210) |
 | `volume_window_days` | INT | 100 | Days of history averaged to rank securities by volume. Used **only when the shortlist is built** at Sync (D-016, D-210) |
-| `shortlist_size` | INT | 50 equity / 25 commodity / 3 global | How many securities, by highest average volume, make the viable universe the daily run works on. Rebuilt at Sync (D-210) |
+| `shortlist_size` | INT | 50 equity / 25 commodity / 3 global | How many securities, by highest average volume, make the viable universe the daily run works on. Rebuilt at Sync (D-210). The three viable-universe keys have their own card on the Configuration page; a change takes effect at the next **Sync all** (D-213) |
 
 ### 3.2 Strategy — key `(trading_account)`
 

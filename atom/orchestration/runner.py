@@ -432,7 +432,10 @@ class RunService:
                     "this plan covers buys only",
                 )
             elif mode == "LIVE":
-                free = self._reconcile(conn, run_id, adapter, ref, lots_all, withheld)
+                # A FREEZE holds back quantity already in ATOM's lots, so only exclusions are
+                # outside them when the books are matched against the broker (D-062).
+                excluded = orders.withheld_by_instrument(conn, aid, exclusion_type="EXCLUSION")
+                free = self._reconcile(conn, run_id, adapter, ref, lots_all, excluded)
 
             # ---- phase 3: sell plan
             member_cat = {int(m["instrument_id"]): m["category"] for m in members}
@@ -441,7 +444,28 @@ class RunService:
             if not sells_done:
                 sell_inputs: dict[int, SellInput] = {}
                 universe_qty: dict[int, int] = defaultdict(int)
-                for lot in lots_universe:
+                sell_lots = lots_universe
+                if mode == "DRY":
+                    # D-212: an adopted manual holding is real stock; a paper fill must never
+                    # close it, so DRY leaves every instrument holding one alone.
+                    external = {
+                        lot.instrument_id
+                        for lot in lots_universe
+                        if lot.provenance.value == "EXTERNAL"
+                    }
+                    if external:
+                        sell_lots = [
+                            lot for lot in lots_universe if lot.instrument_id not in external
+                        ]
+                        runs.log(
+                            conn,
+                            run_id,
+                            level="INFO",
+                            stage="SELL",
+                            message=f"{len(external)} adopted manual holding(s) not sold: "
+                            "they are sold in LIVE runs only",
+                        )
+                for lot in sell_lots:
                     universe_qty[lot.instrument_id] += lot.quantity_open
                 for iid, qty in universe_qty.items():
                     meta = info.get(iid, {})
@@ -462,7 +486,7 @@ class RunService:
                         tick_size=meta.get("tick_size"),
                         sellable_quantity=cap,
                     )
-                tranches, skipped = plan_sells(lots_universe, sell_inputs)
+                tranches, skipped = plan_sells(sell_lots, sell_inputs)
                 for s in skipped:
                     runs.log(
                         conn,

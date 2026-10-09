@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import { api, type ConfigKey, type ConfigView } from "../api";
 import { useApp } from "../context";
 import { when } from "../format";
@@ -10,6 +11,9 @@ import { Badge, Button, Card, ErrorNote, Loading, Notice, PageHeader, inputCls, 
 // key means "do not buy this category" (D-039, D-068).
 
 type Cell = { key: string; category: string | null };
+
+// Read when the shortlist is built at Sync, never during a run (D-213).
+const SHORTLIST_KEYS = ["shortlist_size", "volume_window_days", "volume_threshold_units"];
 const cellId = (c: Cell) => `${c.key}|${c.category ?? ""}`;
 
 export function ConfigPage() {
@@ -35,7 +39,8 @@ export function ConfigPage() {
   if (view.loading && !view.data) return <Loading />;
   if (!view.data) return <ErrorNote error={view.error} />;
   const data = view.data;
-  const byScope = (scope: ConfigKey["scope"]) => data.keys.filter((k) => k.scope === scope);
+  const byScope = (scope: ConfigKey["scope"]) => data.keys.filter((k) => k.scope === scope && !SHORTLIST_KEYS.includes(k.key_name));
+  const shortlistKeys = data.keys.filter((k) => SHORTLIST_KEYS.includes(k.key_name));
   const dirty = Object.keys(draft).length;
 
   function editor(k: ConfigKey, category: string | null) {
@@ -125,7 +130,50 @@ export function ConfigPage() {
       </div>
       <ErrorNote error={action.error} onDismiss={action.clear} />
 
-      <Card title="Per category" className="mt-4" pad={false}>
+      {shortlistKeys.length > 0 && (
+        <Card
+          title="Viable universe — used at Sync"
+          className="mt-4"
+          pad={false}
+          actions={
+            <Link className="text-[12px] text-accent hover:underline" to="/buyable">
+              Buyable universe →
+            </Link>
+          }
+        >
+          <div className="px-4 pt-3 text-[12px] text-muted">
+            Which ETFs a run may buy: per category, the top <b>shortlist_size</b> by average volume over <b>volume_window_days</b>, at or above{" "}
+            <b>volume_threshold_units</b>. Saving does not change today's list — press <b>Sync all</b> on the Buyable universe page to rebuild it.
+          </div>
+          <div className="overflow-auto">
+            <table className="data">
+              <thead>
+                <tr>
+                  <th>Key</th>
+                  {data.categories.map((c) => (
+                    <th key={c}>{c}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {shortlistKeys.map((k) => (
+                  <tr key={k.key_name}>
+                    <td className="max-w-[320px]">
+                      <div className="font-mono text-[12px] font-medium">{k.key_name}</div>
+                      <div className="text-[11px] text-faint">{k.description}</div>
+                    </td>
+                    {data.categories.map((c) => (
+                      <td key={c}>{editor(k, c)}</td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </Card>
+      )}
+
+      <Card title="Per category — used by each run" className="mt-4" pad={false}>
         <div className="overflow-auto">
           <table className="data">
             <thead>

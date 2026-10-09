@@ -296,6 +296,48 @@ export interface PositionRow {
   first_acquired_on: string;
 }
 
+export interface HoldingControl {
+  instrument_id: number;
+  symbol: string | null;
+  name: string | null;
+  atom_quantity: number;
+  external_quantity: number;
+  excluded_quantity: number;
+  frozen_quantity: number;
+  average_cost: Money | null;
+  acquired_from: string | null;
+  source: "ATOM" | "MANUAL_ADOPTED" | "ATOM_AND_MANUAL" | "MANUAL";
+  sell_enabled: boolean;
+}
+
+export interface BuyableRow {
+  instrument_id: number;
+  symbol: string;
+  name: string | null;
+  member_status: string;
+  avg_volume: Money | null;
+  volume_days: number;
+  rank: number | null;
+  in_shortlist: boolean;
+  reason: string | null;
+}
+
+export interface BuyableCategory {
+  category: string;
+  shortlist_size: number | null;
+  volume_window_days: number | null;
+  volume_threshold_units: Money | null;
+  built_at: string | null;
+  in_count: number;
+  stale: boolean;
+  rows: BuyableRow[];
+}
+
+export interface BuyableView {
+  as_of: string;
+  categories: BuyableCategory[];
+}
+
 export interface ExclusionRow {
   account_exclusion_id: number;
   instrument_id: number;
