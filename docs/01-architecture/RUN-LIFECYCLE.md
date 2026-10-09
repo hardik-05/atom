@@ -242,9 +242,11 @@ reconstructible from SQL alone, with no log parsing.
 
 ### 7.0 Sells go first and alone, buys wait for the release (D-211)
 
-Execute plans the **sells and sends them at once** (cancel-all → verify → place tranche GTTs). A
+Execute plans the **sells and sends them at once** (cancel-all → verify → place tranche GTTs),
+and **in parallel** fetches the shortlist's prices and works out the buys. The console returns
+immediately and shows both as they finish; the operator's only step is **Approve**. A
 problem on the buy side — no shortlist, no prices — is recorded on the run and **never blocks the
-sells**. The buy orders are written as intents and sent only when the operator **releases** them.
+sells**. The buy orders are written as intents and sent only when the operator **approves** them.
 A day has one release; sells are sent once a day, by the first plan, and later plans in the same
 day are buys-only.
 

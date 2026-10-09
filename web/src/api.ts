@@ -236,6 +236,18 @@ export interface RunDetail {
   candidates: Candidate[];
   orders: OrderRow[];
   logs: RunLog[];
+  progress: RunProgress | null;
+}
+
+/** Where a running Execute has got to. null once the server has forgotten (the run's rows say it all). */
+export interface RunProgress {
+  sells: "PLANNING" | "SENDING" | "SENT" | "ALREADY_SENT" | "FAILED";
+  sells_planned?: number;
+  sells_sent?: number;
+  sells_error?: string | null;
+  buys: "WAITING" | "CALCULATING" | "READY" | "FAILED";
+  buys_planned?: number;
+  buy_error?: string | null;
 }
 
 export interface CoverageRow {

@@ -2,14 +2,13 @@
 
 RUN-LIFECYCLE.md's seven phases, split at the one point where a human decides.
 
-``plan``      phases 0-4 without sending anything. Pre-flight, reference data,
-              reconciliation, the sell tranches and the buy decisions are all
-              computed, every candidate is recorded, and every order is written
-              as an INTENT row with its idempotency key BEFORE anything leaves
-              the building (D-094). The operator sees the execution list.
-``release``   the sends: cancel ATOM's resting GTTs, verify they are gone,
-              place the fresh tranche GTTs, then the buys. Through the
-              OrderGateway, the only place DRY and LIVE differ (D-045).
+``plan``      Execute. Pre-flight, reference data, reconciliation and the sell
+              tranches; the sells are then SENT straight away (cancel ATOM's
+              resting GTTs, verify, place) while, in parallel, the buys are
+              decided and written as INTENT rows (D-094, D-211). ``start`` does
+              the same in the background so the console can watch it.
+``release``   the operator's approval: the buys go out. One per day.
+              Through the OrderGateway, the only place DRY and LIVE differ (D-045).
 ``settle``    phase 6: order states, fills, lots, closures. Idempotent.
 ``discard``   an unreleased plan the operator does not want. The run is FAILED
               and so does not consume the day's slot (D-057e).
@@ -20,8 +19,10 @@ log — so "why did nothing happen today" always has an answer in SQL.
 
 from __future__ import annotations
 
+import threading
 from collections import defaultdict
-from dataclasses import dataclass, replace
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from decimal import Decimal
 from typing import Any
@@ -91,6 +92,27 @@ def sell_authorisation_blocked(
     )
 
 
+@dataclass(slots=True)
+class _SellStage:
+    """What the sell phase read, handed on to the buy phase."""
+
+    aid: int
+    ref: Any
+    info: dict[int, dict[str, Any]]
+    short_ids: dict[int, str]
+    members: list[dict[str, Any]]
+    quotes: dict[int, Any]
+    lots_universe: list[Any]
+    held_ids: set[int]
+    withheld: dict[int, int]
+    bought_today: set[int]
+    db_bars: dict[int, list[dict[str, Any]]]
+    navs: dict[int, Any]
+    tranches: int
+    seq: int
+    sells_pending: bool
+
+
 @dataclass(frozen=True, slots=True)
 class PlanResult:
     run_id: int
@@ -108,9 +130,42 @@ class PlanResult:
 class RunService:
     def __init__(self, engine: Engine) -> None:
         self.engine = engine
+        self._lock = threading.Lock()
+        self._progress: dict[int, dict[str, Any]] = {}
+        self._background = ThreadPoolExecutor(max_workers=2, thread_name_prefix="atom-run")
 
     # ================================================================== plan
     def plan(self, *, account_id: int, universe_id: int, actor: str) -> PlanResult:
+        """Execute and wait for it: sells sent, buys planned."""
+        run_id, acct, cfg, today, mode = self._create(account_id, universe_id, actor)
+        return self._execute(run_id, acct, cfg, universe_id, today, mode, actor)
+
+    def start(self, *, account_id: int, universe_id: int, actor: str) -> int:
+        """Execute in the background. The fast checks run here, so a refusal is immediate;
+        the console then watches ``progress(run_id)``."""
+        run_id, acct, cfg, today, mode = self._create(account_id, universe_id, actor)
+        self._set_progress(run_id, sells="PLANNING", buys="WAITING")
+        # A failure is recorded on the run and in progress(); the future is not read.
+        self._background.submit(self._execute, run_id, acct, cfg, universe_id, today, mode, actor)
+        return run_id
+
+    def progress(self, run_id: int) -> dict[str, Any] | None:
+        """Where a background Execute has got to; None once forgotten (e.g. after a restart),
+        when the run's own rows tell the whole story."""
+        with self._lock:
+            p = self._progress.get(run_id)
+            return dict(p) if p else None
+
+    def _set_progress(self, run_id: int, **changes: Any) -> None:
+        with self._lock:
+            self._progress.setdefault(run_id, {}).update(changes)
+            if len(self._progress) > 100:
+                for old in sorted(self._progress)[:-100]:
+                    self._progress.pop(old, None)
+
+    def _create(
+        self, account_id: int, universe_id: int, actor: str
+    ) -> tuple[int, dict[str, Any], RunConfig, date, str]:
         today = today_ist()
         with transaction(self.engine.pool) as conn:
             acct = accounts.get_account(conn, account_id)
@@ -146,20 +201,89 @@ class RunService:
                 message=f"run created by {actor} in {mode} mode",
                 context={"universe_id": universe_id},
             )
+        return run_id, acct, cfg, today, mode
 
+    def _execute(
+        self,
+        run_id: int,
+        acct: dict[str, Any],
+        cfg: RunConfig,
+        universe_id: int,
+        today: date,
+        mode: str,
+        actor: str,
+    ) -> PlanResult:
+        """Sells are decided first and sent at once; the buys are worked out alongside the
+        sending. Nothing on the buy side can hold up or fail the sells (D-211)."""
+        self._set_progress(run_id, sells="PLANNING", buys="WAITING")
+        sender = ThreadPoolExecutor(max_workers=1, thread_name_prefix="atom-sells")
         try:
-            result, sells_pending = self._plan_body(run_id, acct, cfg, universe_id, today, mode)
+            with self.engine.pool.connection() as adapter_conn:
+                adapter = self.engine.adapter(acct["broker_code"], adapter_conn)
+                try:
+                    try:
+                        stage = self._plan_sells(
+                            adapter, run_id, acct, cfg, universe_id, today, mode
+                        )
+                    except Exception as exc:
+                        self._fail(run_id, "PLAN", exc)
+                        self._set_progress(
+                            run_id, sells="FAILED", sells_error=str(exc), buys="FAILED"
+                        )
+                        raise
+                    sells_future = None
+                    if stage.sells_pending:
+                        self._set_progress(run_id, sells="SENDING", sells_planned=stage.tranches)
+                        sells_future = sender.submit(self._send_sells, run_id, actor)
+                    else:
+                        self._set_progress(run_id, sells="ALREADY_SENT")
+                    self._set_progress(run_id, buys="CALCULATING")
+                    try:
+                        buys, candidates, buy_error = self._plan_buys(
+                            adapter, run_id, cfg, universe_id, today, stage
+                        )
+                    except Exception as exc:  # anything unforeseen: logged, sells unaffected
+                        self._log_error(run_id, "BUY", exc)
+                        buys, candidates, buy_error = 0, 0, f"{type(exc).__name__}: {exc}"
+                    self._set_progress(
+                        run_id,
+                        buys="FAILED" if buy_error else "READY",
+                        buys_planned=buys,
+                        buy_error=buy_error,
+                    )
+                finally:
+                    close_adapter(adapter)
+            sells_sent, sells_error = 0, None
+            if sells_future is not None:
+                sells_sent, sells_error = sells_future.result()
+                self._set_progress(
+                    run_id,
+                    sells="FAILED" if sells_error else "SENT",
+                    sells_sent=sells_sent,
+                    sells_error=sells_error,
+                )
+        finally:
+            sender.shutdown(wait=True)
+        return PlanResult(
+            run_id=run_id,
+            execution_mode=mode,
+            buys=buys,
+            sells=stage.tranches,
+            candidates=candidates,
+            sells_sent=sells_sent,
+            sells_error=sells_error,
+            buy_error=buy_error,
+        )
+
+    def _send_sells(self, run_id: int, actor: str) -> tuple[int, str | None]:
+        try:
+            sent = self._dispatch(run_id, actor, sells=True, buys=False)
+            return int(sent["placed"]), sent["halted"]
+        except AtomError as exc:
+            return 0, str(exc)
         except Exception as exc:
-            self._fail(run_id, "PLAN", exc)
-            raise
-        if sells_pending:
-            # Sells do not wait for the operator and are not held up by anything on the buy side.
-            try:
-                sent = self._dispatch(run_id, actor, sells=True, buys=False)
-                result = replace(result, sells_sent=sent["placed"])
-            except AtomError as exc:
-                result = replace(result, sells_error=str(exc))
-        return result
+            self._log_error(run_id, "SELL", exc)
+            return 0, f"{type(exc).__name__}: {exc}"
 
     def _config(self, conn: Any, account_id: int, universe_id: int) -> RunConfig:
         cats = universes.categories(conn, universe_id)
@@ -221,28 +345,7 @@ class RunService:
                     account_id=aid,
                 )
 
-    def _plan_body(
-        self,
-        run_id: int,
-        acct: dict[str, Any],
-        cfg: RunConfig,
-        universe_id: int,
-        today: date,
-        mode: str,
-    ) -> tuple[PlanResult, bool]:
-        """Returns the result and whether this plan owns the day's sells.
-
-        Two transactions. The first decides and records the sells; once it commits they stand
-        whatever happens on the buy side. The second decides the buys and may fail on its own.
-        """
-        with self.engine.pool.connection() as adapter_conn:
-            adapter = self.engine.adapter(acct["broker_code"], adapter_conn)
-            try:
-                return self._plan_with(adapter, run_id, acct, cfg, universe_id, today, mode)
-            finally:
-                close_adapter(adapter)
-
-    def _plan_with(
+    def _plan_sells(
         self,
         adapter: Any,
         run_id: int,
@@ -251,7 +354,9 @@ class RunService:
         universe_id: int,
         today: date,
         mode: str,
-    ) -> tuple[PlanResult, bool]:
+    ) -> _SellStage:
+        """Pre-flight, reference, reconcile and the sell intents, in one transaction: once it
+        commits the sells stand, whatever happens on the buy side."""
         aid = int(acct["trading_account_id"])
         broker_id = int(acct["broker_id"])
 
@@ -418,9 +523,43 @@ class RunService:
             lookback_max = max((c.lookback_days for c in cfg.categories.values()), default=1)
             db_bars = market.recent_bars(conn, sorted(short_ids), before=today, limit=lookback_max)
             navs = market.latest_navs(conn, sorted(short_ids), on_or_before=today)
-        sell_count = seq
+        return _SellStage(
+            aid=aid,
+            ref=ref,
+            info=info,
+            short_ids=short_ids,
+            members=members,
+            quotes=quotes,
+            lots_universe=lots_universe,
+            held_ids=held_ids,
+            withheld=withheld,
+            bought_today=set(bought_today),
+            db_bars=db_bars,
+            navs=navs,
+            tranches=len(tranches),
+            seq=seq,
+            sells_pending=not sells_done,
+        )
 
-        # ================= transaction 2: buys. Failing here leaves the sells untouched.
+    def _plan_buys(
+        self,
+        adapter: Any,
+        run_id: int,
+        cfg: RunConfig,
+        universe_id: int,
+        today: date,
+        st: _SellStage,
+    ) -> tuple[int, int, str | None]:
+        """The buy decisions and their intents. Failing here leaves the sells untouched."""
+        aid, ref, info, short_ids, members = st.aid, st.ref, st.info, st.short_ids, st.members
+        quotes, lots_universe, held_ids, withheld = (
+            st.quotes,
+            st.lots_universe,
+            st.held_ids,
+            st.withheld,
+        )
+        bought_today, db_bars, navs = st.bought_today, st.db_bars, st.navs
+        seq = sell_count = st.seq
         buys, candidates, buy_error = 0, 0, None
         try:
             if not short_ids:
@@ -505,7 +644,7 @@ class RunService:
                     level="INFO",
                     stage="BUY",
                     message=f"planned {len(buy_plan.orders)} buys worth {buy_plan.spent}; "
-                    f"{len(tranches)} sell tranches; buys await release",
+                    "buys await approval",
                     context={"spent": str(buy_plan.spent)},
                 )
                 buys, candidates = len(buy_plan.orders), len(buy_plan.candidates)
@@ -519,17 +658,7 @@ class RunService:
                     stage="BUY",
                     message=f"buy plan not made: {exc}",
                 )
-        return (
-            PlanResult(
-                run_id=run_id,
-                execution_mode=mode,
-                buys=buys,
-                sells=len(tranches),
-                candidates=candidates,
-                buy_error=buy_error,
-            ),
-            not sells_done,
-        )
+        return buys, candidates, buy_error
 
     @staticmethod
     def _fetch_closes(

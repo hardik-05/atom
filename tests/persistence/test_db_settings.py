@@ -35,7 +35,7 @@ def test_url_dsn_is_accepted() -> None:
     settings = load_settings({DSN_ENV: "postgresql://atom:pw%40word@db.example.com:5432/postgres"})
     assert settings.dsn.startswith("postgresql://")
     assert settings.min_size == 1
-    assert settings.max_size == 4
+    assert settings.max_size == 8
 
 
 def test_pool_sizes_come_from_the_environment() -> None:

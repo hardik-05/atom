@@ -91,7 +91,7 @@ def load_settings(env: dict[str, str] | None = None) -> DbSettings:
     return DbSettings(
         dsn=dsn,
         min_size=_int_from(source, "ATOM_DB_POOL_MIN", 1),
-        max_size=_int_from(source, "ATOM_DB_POOL_MAX", 4),
+        max_size=_int_from(source, "ATOM_DB_POOL_MAX", 8),
         connect_timeout_sec=_int_from(source, "ATOM_DB_CONNECT_TIMEOUT_SEC", 10),
         # A run is a handful of small statements; anything that takes 30 seconds
         # is a bug or a lock, and both are better surfaced than waited on.

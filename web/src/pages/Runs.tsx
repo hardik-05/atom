@@ -1,16 +1,9 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { api, type Candidate, type Run, type RunDetail } from "../api";
+import { api, type Candidate, type OrderRow, type Run, type RunDetail } from "../api";
 import { useApp } from "../context";
 import { day, inr, pct, price, qty, when } from "../format";
-import { Badge, Button, Card, ConfirmDialog, Empty, ErrorNote, Loading, Mono, Notice, PageHeader, TableBox, statusTone, useAction, useAsync } from "../ui";
-
-type PlanOutcome = {
-  run_id: number;
-  sells_sent: number;
-  sells_error: string | null;
-  buy_error: string | null;
-};
+import { Badge, Button, Card, ConfirmDialog, Empty, ErrorNote, Loading, Mono, Notice, PageHeader, Spinner, TableBox, statusTone, useAction, useAsync } from "../ui";
 
 export function RunsPage() {
   const app = useApp();
@@ -18,26 +11,21 @@ export function RunsPage() {
   const list = useAsync(() => api.get<Run[]>("/runs"), []);
   const action = useAction();
 
-  const [planned, setPlanned] = useState<PlanOutcome | null>(null);
-
-  async function plan() {
-    setPlanned(null);
+  async function execute() {
     const r = await action.act(() =>
-      api.post<PlanOutcome>("/runs/plan", { account_id: app.accountId, universe_id: app.universeId }),
+      api.post<{ run_id: number }>("/runs/plan", { account_id: app.accountId, universe_id: app.universeId }),
     );
-    if (!r) return;
-    if (r.buy_error || r.sells_error) setPlanned(r);
-    else navigate(`/runs/${r.run_id}`);
+    if (r) navigate(`/runs/${r.run_id}`);
   }
 
   return (
     <>
       <PageHeader
         title="Execute"
-        subtitle="Execute sends today's sells straight away, then plans the buys from the shortlist. Buys reach the broker only when you release them, once a day."
+        subtitle="Execute sends today's sells to the broker straight away and, at the same time, works out today's buys from the shortlist. The buys go out only when you approve them, once a day."
         actions={
-          <Button variant="primary" onClick={plan} busy={action.busy} disabled={!app.accountId || !app.universeId}>
-            Plan today's run
+          <Button variant="primary" onClick={execute} busy={action.busy} disabled={!app.accountId || !app.universeId}>
+            Execute
           </Button>
         }
       />
@@ -46,29 +34,17 @@ export function RunsPage() {
           <Notice tone={app.account.execution_mode === "LIVE" ? "warn" : "info"}>
             {app.account.investor_name} · {app.account.broker_name} is a <b>{app.account.execution_mode}</b> account
             {app.account.execution_mode === "LIVE"
-              ? " — a released run places real orders. The dry_run config key forces DRY for this universe without touching the account."
-              : " — released orders are simulated against each day's high and low; nothing is sent."}
+              ? " — Execute places real sell orders at once, and approved buys are real orders. The dry_run config key forces DRY for this universe without touching the account."
+              : " — orders are simulated against each day's high and low; nothing is sent."}
           </Notice>
         </div>
       )}
       <ErrorNote error={action.error} onDismiss={action.clear} />
-      {planned && (
-        <div className="mb-3">
-          <Notice tone="warn">
-            {planned.sells_sent > 0 && <>{planned.sells_sent} sell order(s) were sent. </>}
-            {planned.sells_error && <>Sells did not go out: {planned.sells_error}. </>}
-            {planned.buy_error && <>No buy plan was made: {planned.buy_error}. </>}
-            <a className="underline" onClick={() => navigate(`/runs/${planned.run_id}`)}>
-              Open run #{planned.run_id}
-            </a>
-          </Notice>
-        </div>
-      )}
       <Card title="Runs" className="mt-4" pad={false}>
         {list.loading && !list.data && <Loading />}
         {list.data && list.data.length === 0 && (
           <Empty title="No runs yet">
-            Before the first plan: import reference data, sync the instrument master and price history, complete the configuration, and generate today's token.
+            Before the first Execute: import reference data, sync the instrument master and price history, complete the configuration, and generate today's token.
           </Empty>
         )}
         {list.data && list.data.length > 0 && (
@@ -134,10 +110,22 @@ export function RunDetailPage() {
 
   const d = detail.data;
   const intents = d?.orders.filter((o) => o.status === "INTENT") ?? [];
+  const sellOrders = d?.orders.filter((o) => o.side === "SELL") ?? [];
+  const buyOrders = d?.orders.filter((o) => o.side === "BUY") ?? [];
+  const buyIntents = buyOrders.filter((o) => o.status === "INTENT");
   const buyValue = useMemo(
-    () => (d?.orders ?? []).filter((o) => o.side === "BUY").reduce((s, o) => s + Number(o.limit_price) * o.quantity, 0),
+    () => buyIntents.reduce((s, o) => s + Number(o.limit_price) * o.quantity, 0),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [d],
   );
+  const p = d?.progress ?? null;
+  const working = !!p && (["PLANNING", "SENDING"].includes(p.sells) || ["WAITING", "CALCULATING"].includes(p.buys));
+  const reload = detail.reload;
+  useEffect(() => {
+    if (!working) return;
+    const t = setInterval(() => void reload(), 2000);
+    return () => clearInterval(t);
+  }, [working, reload]);
   const categories = useMemo(() => ["ALL", ...Array.from(new Set((d?.candidates ?? []).map((c) => c.category)))], [d]);
 
   if (detail.loading && !d) return <Loading />;
@@ -155,15 +143,10 @@ export function RunDetailPage() {
           <>
             <Badge tone={live ? "danger" : "info"}>{run.execution_mode}</Badge>
             <Badge tone={statusTone(run.status)}>{run.status}</Badge>
-            {run.status === "EXECUTING" && intents.length > 0 && (
-              <>
-                <Button variant="ghost" onClick={() => setConfirm("discard")}>
-                  Discard plan
-                </Button>
-                <Button variant={live ? "danger" : "primary"} onClick={() => setConfirm("release")}>
-                  Release {intents.length} order{intents.length === 1 ? "" : "s"}
-                </Button>
-              </>
+            {run.status === "EXECUTING" && intents.length > 0 && !working && (
+              <Button variant="ghost" onClick={() => setConfirm("discard")}>
+                Discard
+              </Button>
             )}
             {run.status !== "FAILED" && intents.length === 0 && d.orders.length > 0 && (
               <Button
@@ -191,54 +174,69 @@ export function RunDetailPage() {
         </div>
       )}
 
-      <Card title={`Execution list · ${d.orders.length} order${d.orders.length === 1 ? "" : "s"} · buys ${inr(buyValue)}`} pad={false}>
-        {d.orders.length === 0 ? (
-          <Empty title="No orders in this run">Every candidate's reason is in the proposal table below.</Empty>
-        ) : (
-          <TableBox exportName={`run-${id}-orders.csv`} rows={d.orders as unknown as Record<string, unknown>[]}>
-            <table className="data">
-              <thead>
-                <tr>
-                  <th>Symbol</th>
-                  <th>Side</th>
-                  <th>Kind</th>
-                  <th className="num">Qty</th>
-                  <th className="num">Limit</th>
-                  <th className="num">Trigger</th>
-                  <th className="num">Value</th>
-                  <th>Status</th>
-                  <th>Broker id</th>
-                  <th>Ref</th>
-                  <th>Reason</th>
-                </tr>
-              </thead>
-              <tbody>
-                {d.orders.map((o) => (
-                  <tr key={o.order_request_id}>
-                    <td className="font-medium">{o.symbol}</td>
-                    <td className={o.side === "BUY" ? "text-gain" : "text-loss"}>{o.side}</td>
-                    <td>{o.order_kind}</td>
-                    <td className="num">{qty(o.quantity)}</td>
-                    <td className="num">{price(o.limit_price)}</td>
-                    <td className="num">{price(o.trigger_price)}</td>
-                    <td className="num">{inr(Number(o.limit_price) * o.quantity)}</td>
-                    <td>
-                      <Badge tone={statusTone(o.status)}>{o.status}</Badge>
-                    </td>
-                    <td>
-                      <Mono>{o.broker_order_id ?? "—"}</Mono>
-                    </td>
-                    <td>
-                      <Mono>{o.idempotency_key}</Mono>
-                    </td>
-                    <td className="max-w-[280px] text-[12px] text-muted">{o.reject_reason}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </TableBox>
-        )}
-      </Card>
+      <div className="grid gap-4 lg:grid-cols-2">
+        <Card
+          title={
+            <span className="flex items-center gap-2">
+              1 · Sells <SellState run={d} />
+            </span>
+          }
+          pad={false}
+        >
+          {sellOrders.length === 0 ? (
+            <div className="p-4 text-[13px] text-muted">
+              {p && ["PLANNING"].includes(p.sells) ? (
+                <span className="flex items-center gap-2">
+                  <Spinner small /> Working out today's sells…
+                </span>
+              ) : p?.sells === "ALREADY_SENT" ? (
+                "Today's sells were already sent by an earlier Execute."
+              ) : p?.sells === "FAILED" ? (
+                <span className="text-loss">{p.sells_error}</span>
+              ) : (
+                "Nothing to sell today."
+              )}
+            </div>
+          ) : (
+            <OrdersTable orders={sellOrders} exportName={`run-${id}-sells.csv`} />
+          )}
+          {p?.sells_error && sellOrders.length > 0 && <div className="border-t border-line p-3 text-[12px] text-loss">{p.sells_error}</div>}
+        </Card>
+
+        <Card
+          title={
+            <span className="flex items-center gap-2">
+              2 · Buys <BuyState run={d} />
+            </span>
+          }
+          actions={
+            run.status === "EXECUTING" &&
+            buyIntents.length > 0 &&
+            !working && (
+              <Button variant={live ? "danger" : "primary"} onClick={() => setConfirm("release")}>
+                Approve {buyIntents.length} buy{buyIntents.length === 1 ? "" : "s"} · {inr(buyValue)}
+              </Button>
+            )
+          }
+          pad={false}
+        >
+          {buyOrders.length === 0 ? (
+            <div className="p-4 text-[13px] text-muted">
+              {p && ["WAITING", "CALCULATING"].includes(p.buys) ? (
+                <span className="flex items-center gap-2">
+                  <Spinner small /> Fetching prices for the shortlist and ranking the candidates…
+                </span>
+              ) : p?.buy_error ? (
+                <span className="text-loss">{p.buy_error}</span>
+              ) : (
+                "No buys today. Every candidate's reason is in the proposal table below."
+              )}
+            </div>
+          ) : (
+            <OrdersTable orders={buyOrders} exportName={`run-${id}-buys.csv`} />
+          )}
+        </Card>
+      </div>
 
       <Card
         title={`Proposal table · ${d.candidates.length} candidates`}
@@ -315,20 +313,20 @@ export function RunDetailPage() {
 
       <ConfirmDialog
         open={confirm === "release"}
-        title={live ? `Place ${intents.length} REAL orders` : `Release ${intents.length} paper orders`}
+        title={live ? `Approve ${buyIntents.length} REAL buys` : `Approve ${buyIntents.length} paper buys`}
         tone={live ? "danger" : "primary"}
         consequence={
           live ? (
             <>
-              Today's sells were sent when this plan was made. Releasing sends only the buys, at {run.broker_code} from this account's
-              registered address, and uses the day's one release. Buys total {inr(buyValue)}. Orders are limit orders; a buy the broker
+              The buys are placed at {run.broker_code} from this account's registered address. This is the day's one approval. Buys
+              total {inr(buyValue)}. Orders are limit orders; a buy the broker
               rejects for funds is recorded and the rest continue.
             </>
           ) : (
             <>Nothing is sent to {run.broker_code}. Orders are recorded as placed and filled on settle only if the day's high/low reached them.</>
           )
         }
-        confirmLabel={live ? "Place real orders" : "Release"}
+        confirmLabel={live ? "Place real buys" : "Approve"}
         busy={action.busy}
         onCancel={() => setConfirm(null)}
         onConfirm={async () => {
@@ -340,8 +338,8 @@ export function RunDetailPage() {
       />
       <ConfirmDialog
         open={confirm === "discard"}
-        title="Discard this plan"
-        consequence="Every unsent intent is cancelled; a run that sent nothing is marked FAILED, which frees today's release so a fresh plan can be made. Sells already sent are not recalled."
+        title="Discard these buys"
+        consequence="The unapproved buys are cancelled, so a fresh Execute can be run today. Sells already sent are not recalled."
         confirmLabel="Discard"
         tone="danger"
         busy={action.busy}
@@ -353,5 +351,76 @@ export function RunDetailPage() {
         }}
       />
     </>
+  );
+}
+
+function SellState({ run }: { run: RunDetail }) {
+  const p = run.progress;
+  const sells = run.orders.filter((o) => o.side === "SELL");
+  if (p?.sells === "PLANNING" || p?.sells === "SENDING")
+    return (
+      <Badge tone="info">
+        <Spinner small /> {p.sells === "PLANNING" ? "planning" : "sending"}
+      </Badge>
+    );
+  if (p?.sells === "FAILED") return <Badge tone="danger">not sent</Badge>;
+  if (p?.sells === "ALREADY_SENT") return <Badge tone="neutral">sent earlier</Badge>;
+  const sent = sells.filter((o) => o.status !== "INTENT" && o.status !== "CANCELLED").length;
+  if (sells.length === 0) return <Badge tone="neutral">none</Badge>;
+  return <Badge tone={sent === sells.length ? "success" : "warn"}>{sent} of {sells.length} sent</Badge>;
+}
+
+function BuyState({ run }: { run: RunDetail }) {
+  const p = run.progress;
+  const buys = run.orders.filter((o) => o.side === "BUY");
+  if (p?.buys === "WAITING" || p?.buys === "CALCULATING")
+    return (
+      <Badge tone="info">
+        <Spinner small /> calculating
+      </Badge>
+    );
+  if (p?.buys === "FAILED") return <Badge tone="danger">not planned</Badge>;
+  if (buys.length === 0) return <Badge tone="neutral">none</Badge>;
+  if (buys.some((o) => o.status === "INTENT")) return <Badge tone="warn">awaiting approval</Badge>;
+  if (buys.every((o) => o.status === "CANCELLED")) return <Badge tone="neutral">discarded</Badge>;
+  return <Badge tone="success">approved</Badge>;
+}
+
+function OrdersTable({ orders, exportName }: { orders: OrderRow[]; exportName: string }) {
+  return (
+    <TableBox exportName={exportName} rows={orders as unknown as Record<string, unknown>[]}>
+      <table className="data">
+        <thead>
+          <tr>
+            <th>Symbol</th>
+            <th>Kind</th>
+            <th className="num">Qty</th>
+            <th className="num">Limit</th>
+            <th className="num">Value</th>
+            <th>Status</th>
+            <th>Broker id</th>
+            <th>Reason</th>
+          </tr>
+        </thead>
+        <tbody>
+          {orders.map((o) => (
+            <tr key={o.order_request_id}>
+              <td className="font-medium">{o.symbol}</td>
+              <td>{o.order_kind}</td>
+              <td className="num">{qty(o.quantity)}</td>
+              <td className="num">{price(o.limit_price)}</td>
+              <td className="num">{inr(Number(o.limit_price) * o.quantity)}</td>
+              <td>
+                <Badge tone={statusTone(o.status)}>{o.status}</Badge>
+              </td>
+              <td>
+                <Mono>{o.broker_order_id ?? "—"}</Mono>
+              </td>
+              <td className="max-w-[240px] text-[12px] text-muted">{o.reject_reason}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </TableBox>
   );
 }

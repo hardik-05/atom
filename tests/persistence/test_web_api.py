@@ -376,10 +376,16 @@ def test_plan_release_settle_over_http(client, migrated_dsn: str) -> None:  # ty
     planned = c.post(
         "/api/runs/plan", headers=HDR, json={"account_id": account, "universe_id": universe}
     )
-    assert planned.status_code == 201, planned.text
+    assert planned.status_code == 202, planned.text
     run_id = planned.json()["run_id"]
 
-    detail = c.get(f"/api/runs/{run_id}").json()
+    # Execute returns at once; the buys are worked out in the background
+    for _ in range(100):
+        detail = c.get(f"/api/runs/{run_id}").json()
+        if detail["progress"]["buys"] not in ("WAITING", "CALCULATING"):
+            break
+        time.sleep(0.1)
+    assert detail["progress"]["buys"] == "READY", detail["progress"]
     [order] = detail["orders"]
     assert (
         order["status"] == "INTENT"

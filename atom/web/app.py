@@ -785,10 +785,12 @@ def create_app(engine: Engine, jobs: JobRunner) -> FastAPI:
 
     @api.post("/runs/plan")
     def plan(body: PlanBody, user: str = Depends(current_user)) -> Response:
-        result = run_service.plan(
+        # Returns at once: the sells go out and the buys are worked out in the background,
+        # and the run page watches both through GET /runs/{id}.
+        run_id = run_service.start(
             account_id=body.account_id, universe_id=body.universe_id, actor=user
         )
-        return _json(result, 201)
+        return _json({"run_id": run_id}, 202)
 
     @api.get("/runs/{run_id}")
     def get_run(run_id: int) -> Response:
@@ -799,6 +801,7 @@ def create_app(engine: Engine, jobs: JobRunner) -> FastAPI:
                     "candidates": runs.candidates(conn, run_id),
                     "orders": orders.orders_for_run(conn, run_id),
                     "logs": runs.logs(conn, run_id),
+                    "progress": run_service.progress(run_id),
                 }
             )
 
