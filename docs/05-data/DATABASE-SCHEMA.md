@@ -404,7 +404,7 @@ CREATE TABLE atom.run (
     finished_at   timestamptz,
     CONSTRAINT run_status_ck CHECK (status IN ('QUEUED','EXECUTING','COMPLETED','FAILED'))
 );
-CREATE UNIQUE INDEX run_one_execute_per_day_uk
+CREATE UNIQUE INDEX run_one_execute_per_day_uk  -- superseded by 0020 (run_one_release_per_day_uk)
     ON atom.run (trading_account_id, universe_id, trade_date)
     WHERE run_type = 'EXECUTE' AND status <> 'FAILED';
 ```

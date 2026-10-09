@@ -178,8 +178,17 @@ resource "aws_iam_role_policy" "control" {
       {
         Sid      = "DescribeInstances"
         Effect   = "Allow"
-        Action   = ["ec2:DescribeInstances", "ec2:DescribeInstanceStatus"]
+        Action   = ["ec2:DescribeInstances", "ec2:DescribeInstanceStatus", "ec2:DescribeAddresses"]
         Resource = ["*"] # Describe* cannot be resource-scoped by the API
+      },
+      {
+        # After a start the function invokes itself (asynchronously) to wait for the
+        # site and report back. Built from the name, not the resource, to avoid a
+        # role -> function -> role cycle.
+        Sid      = "InvokeSelfForSiteCheck"
+        Effect   = "Allow"
+        Action   = ["lambda:InvokeFunction"]
+        Resource = ["arn:aws:lambda:${var.region}:${data.aws_caller_identity.current.account_id}:function:atom-control"]
       },
       {
         Sid    = "StartStopOnlyAtomInstances"
@@ -206,6 +215,27 @@ resource "aws_iam_role_policy" "control" {
         Effect   = "Allow"
         Action   = ["kms:Decrypt"]
         Resource = [aws_kms_key.atom.arn]
+      },
+      {
+        # The engine's disk is encrypted with this key. StartInstances is made AS the
+        # caller, so the caller must be able to let EC2 use the key; without these the
+        # instance starts, fails with Client.InvalidKMSKey, and stops again.
+        Sid    = "StartInstanceWithEncryptedDisk"
+        Effect = "Allow"
+        Action = [
+          "kms:DescribeKey",
+          "kms:GenerateDataKeyWithoutPlaintext",
+          "kms:ReEncrypt*",
+        ]
+        Resource = [aws_kms_key.atom.arn]
+      },
+      {
+        # Only grants EC2 itself holds on the caller's behalf, never one for a person.
+        Sid       = "GrantKeyToEc2Only"
+        Effect    = "Allow"
+        Action    = ["kms:CreateGrant"]
+        Resource  = [aws_kms_key.atom.arn]
+        Condition = { Bool = { "kms:GrantIsForAWSResource" = "true" } }
       },
       {
         Sid    = "NoBrokerSecretsEver"

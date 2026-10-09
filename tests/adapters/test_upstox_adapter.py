@@ -488,3 +488,25 @@ def test_instrument_master_converts_paise_and_marks_suspended() -> None:
     assert rows["HALTED"].tick_size == Decimal("0.0500")
     assert rows["GOLDBEES"].tradable is True
     assert rows["HALTED"].tradable is False
+
+
+def test_suspended_list_covering_the_market_is_ignored() -> None:
+    isins = [f"INE{n:09d}" for n in range(200)]
+    master = [
+        {"segment": "NSE_EQ", "isin": i, "instrument_key": f"NSE_EQ|{i}",
+         "trading_symbol": f"S{n}", "tick_size": 5.0}
+        for n, i in enumerate(isins)
+    ]
+    suspended = [{"isin": i} for i in isins]
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        payload = suspended if "suspended" in request.url.path else master
+        return httpx.Response(200, content=gzip.compress(json.dumps(payload).encode()))
+
+    adapter = UpstoxAdapter(
+        secrets=MemorySecretStore(),
+        resolver=DictResolver(),
+        redirect_uri=REDIRECT,
+        transport=httpx.MockTransport(handler),
+    )
+    assert all(i.tradable for i in adapter.fetch_instruments())

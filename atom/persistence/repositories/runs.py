@@ -35,8 +35,8 @@ def create_run(
     trade_date: date,
     config_snapshot: dict[str, Any],
 ) -> int:
-    """Created EXECUTING. The partial unique index refuses a second non-FAILED
-    EXECUTE run for the same account, universe and day (D-057e)."""
+    """Created EXECUTING. Any number of plans per day may exist; only one can be released
+    (run_one_release_per_day_uk)."""
     row = fetch_exactly_one(
         conn,
         """
@@ -142,12 +142,36 @@ def logs(conn: Conn, run_id: int) -> list[dict[str, Any]]:
     )
 
 
-def live_execute_run(
+def released_execute_run(
     conn: Conn, *, account_id: int, universe_id: int, trade_date: date
 ) -> dict[str, Any] | None:
+    """The run whose orders went out today, if any. At most one (run_one_release_per_day_uk)."""
     return fetch_one(
         conn,
         "SELECT * FROM atom.run WHERE trading_account_id = %s AND universe_id = %s "
-        "AND trade_date = %s AND run_type = 'EXECUTE' AND status <> 'FAILED'",
+        "AND trade_date = %s AND run_type = 'EXECUTE' AND released_at IS NOT NULL",
         (account_id, universe_id, trade_date),
+    )
+
+
+def open_plans(
+    conn: Conn, *, account_id: int, universe_id: int, trade_date: date
+) -> list[dict[str, Any]]:
+    """Today's plans that are still waiting for a release."""
+    return fetch_all(
+        conn,
+        "SELECT * FROM atom.run WHERE trading_account_id = %s AND universe_id = %s "
+        "AND trade_date = %s AND run_type = 'EXECUTE' AND status = 'EXECUTING' "
+        "AND released_at IS NULL ORDER BY run_id",
+        (account_id, universe_id, trade_date),
+    )
+
+
+def claim_release(conn: Conn, run_id: int) -> None:
+    """Stamp the run as released. The unique index refuses a second release for the day."""
+    execute_expecting(
+        conn,
+        "UPDATE atom.run SET released_at = now() WHERE run_id = %s AND released_at IS NULL",
+        (run_id,),
+        rows=1,
     )

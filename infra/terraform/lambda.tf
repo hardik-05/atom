@@ -9,7 +9,7 @@ resource "aws_lambda_function" "control" {
   role          = aws_iam_role.control.arn
   handler       = "handler.handler"
   runtime       = "python3.12"
-  timeout       = 30
+  timeout       = 300 # webhook replies take ~1s; the follow-up poll after a start waits up to 240s
   memory_size   = 128
 
   # Reserved concurrency is deliberately UNSET, not forgotten.
@@ -47,6 +47,16 @@ resource "aws_lambda_function_url" "control" {
   function_name      = aws_lambda_function.control.function_name
   authorization_type = "NONE" # Telegram cannot sign; the secret token authenticates
 }
+
+# NOTE: a public Function URL needs BOTH grants since AWS tightened this: the
+# InvokeFunctionUrl statement that creating the URL adds, and an InvokeFunction one
+# with the InvokedViaFunctionUrl condition. Without the second every request is a
+# 403 from AWS itself, before the handler (and its secret-token check) runs. The
+# pinned provider (5.x) cannot express it, so it is added once with the CLI; redo it
+# if the function is ever recreated:
+#   aws lambda add-permission --function-name atom-control \
+#     --statement-id FunctionURLInvokeFunction --action lambda:InvokeFunction \
+#     --principal "*" --invoked-via-function-url
 
 resource "aws_cloudwatch_log_group" "control" {
   name              = "/aws/lambda/${aws_lambda_function.control.function_name}"

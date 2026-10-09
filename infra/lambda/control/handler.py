@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -23,6 +24,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 import boto3
+from botocore.exceptions import ClientError
 
 log = logging.getLogger()
 log.setLevel(logging.INFO)
@@ -35,10 +37,16 @@ CONSOLE_URL = os.environ.get("ATOM_CONSOLE_URL", "")
 # (max_runtime_minutes); 0 disables it.
 MAX_RUNTIME_MINUTES = int(os.environ.get("ATOM_MAX_RUNTIME_MINUTES", "60"))
 
+# After a start: how long to wait for the site, and how often to look. A cold boot
+# plus pre-flight is ~90s; four minutes leaves room without hanging around.
+SITE_WAIT_SECONDS = int(os.environ.get("ATOM_SITE_WAIT_SECONDS", "240"))
+SITE_POLL_SECONDS = 10
+
 TELEGRAM_API = "https://api.telegram.org"
 
 _ssm = boto3.client("ssm", region_name=REGION)
 _ec2 = boto3.client("ec2", region_name=REGION)
+_lambda = boto3.client("lambda", region_name=REGION)
 
 _cache: dict[str, str] = {}
 
@@ -73,8 +81,7 @@ def _send(chat_id: int, text: str) -> None:
     payload = urllib.parse.urlencode(
         {
             "chat_id": chat_id,
-            "text": text,
-            "parse_mode": "Markdown",
+            "text": text,  # plain text: instance names and IPs contain Markdown characters
             "reply_markup": json.dumps(KEYBOARD),
         }
     ).encode()
@@ -86,36 +93,111 @@ def _send(chat_id: int, text: str) -> None:
         log.warning("telegram sendMessage failed: %s", exc)
 
 
+def _instance() -> dict[str, Any]:
+    return _ec2.describe_instances(InstanceIds=[INSTANCE_ID])["Reservations"][0]["Instances"][0]
+
+
 def _instance_state() -> str:
-    resp = _ec2.describe_instances(InstanceIds=[INSTANCE_ID])
-    return resp["Reservations"][0]["Instances"][0]["State"]["Name"]
+    return str(_instance()["State"]["Name"])
 
 
-def _start() -> str:
+def _public_ip(inst: dict[str, Any]) -> str:
+    """The address, even while stopped: an Elastic IP stays attached but the instance
+    itself then reports none."""
+    if inst.get("PublicIpAddress"):
+        return str(inst["PublicIpAddress"])
+    try:
+        found = _ec2.describe_addresses(Filters=[{"Name": "instance-id", "Values": [INSTANCE_ID]}])
+        return str(found["Addresses"][0]["PublicIp"]) if found["Addresses"] else "none"
+    except (ClientError, IndexError, KeyError):
+        return "unknown"
+
+
+def _info() -> str:
+    inst = _instance()
+    state = inst["State"]["Name"]
+    name = next((t["Value"] for t in inst.get("Tags", []) if t["Key"] == "Name"), "-")
+    lines = [
+        "ℹ️ EC2 Runtime Metadata",
+        "",
+        f"🏷️ Name: {name}",
+        f"🆔 ID: {INSTANCE_ID}",
+        f"📈 State: {state}",
+        f"⚙️ Type: {inst.get('InstanceType', '-')}",
+        f"🌐 Public IP: {_public_ip(inst)}",
+        f"🔒 Private IP: {inst.get('PrivateIpAddress', '-')}",
+    ]
+    if state == "running":
+        up = int((datetime.now(UTC) - inst["LaunchTime"]).total_seconds() // 60)
+        limit = f", stops automatically at {MAX_RUNTIME_MINUTES} min" if MAX_RUNTIME_MINUTES else ""
+        lines.append(f"⏱️ Uptime: {up} min{limit}")
+        if CONSOLE_URL:
+            lines.append(f"🔗 {CONSOLE_URL}")
+    return "\n".join(lines)
+
+
+def _site_up() -> bool:
+    """True when the console answers its health check over HTTPS."""
+    try:
+        with urllib.request.urlopen(f"{CONSOLE_URL}/api/health", timeout=5) as resp:
+            return resp.status == 200
+    except (urllib.error.URLError, OSError):
+        return False  # not listening yet, or TLS not ready: both mean "not up"
+
+
+def _announce_when_up(chat_id: int) -> dict[str, Any]:
+    """Poll the console after a start, then tell the chat whether it is serving.
+
+    Runs as a separate asynchronous invocation, so the Telegram webhook that asked
+    for the start has long since been answered.
+    """
+    deadline = time.monotonic() + SITE_WAIT_SECONDS
+    while time.monotonic() < deadline:
+        if _site_up():
+            _send(chat_id, f"✅ The site is up!\n🔗 {CONSOLE_URL}")
+            return {"site_up": True}
+        time.sleep(SITE_POLL_SECONDS)
+    _send(
+        chat_id,
+        f"⚠️ The engine is running but the site is not answering after {SITE_WAIT_SECONDS // 60} "
+        "min. Pre-flight (the egress IP check) may have failed, which deliberately stops "
+        "the console serving. Check the atom-engine logs in CloudWatch.",
+    )
+    return {"site_up": False}
+
+
+def _start(chat_id: int, who: str) -> str:
+    _send(chat_id, f"🔄 {who} initiated an EC2 start...")
     state = _instance_state()
     if state == "running":
-        return f"Already running.\n{CONSOLE_URL}" if CONSOLE_URL else "Already running."
+        return f"✅ Instance {INSTANCE_ID} is already running!" + (
+            f"\n🔗 {CONSOLE_URL}" if CONSOLE_URL else ""
+        )
     if state in ("pending", "stopping"):
-        return f"Instance is `{state}` — try again in a moment."
+        return f"⏳ Instance is {state}. Try again in a moment."
     _ec2.start_instances(InstanceIds=[INSTANCE_ID])
+    if CONSOLE_URL:
+        # Fire and forget: this invocation answers Telegram now; the next one waits.
+        _lambda.invoke(
+            FunctionName=os.environ["AWS_LAMBDA_FUNCTION_NAME"],
+            InvocationType="Event",
+            Payload=json.dumps({"action": "announce_when_up", "chat_id": chat_id}).encode(),
+        )
     return (
-        "Starting the engine (~90s).\n\n"
-        "The console appears once pre-flight passes — if the egress IP check "
-        "fails it will deliberately *not* serve."
+        "🚀 Start command successfully executed. Booting takes about 90 seconds; "
+        "I will message you when the site is up."
     )
 
 
-def _stop(force: bool) -> str:
+def _stop(chat_id: int, who: str, force: bool) -> str:
+    _send(chat_id, f"🔄 {who} initiated a shutdown command...")
     state = _instance_state()
     if state == "stopped":
-        return "Already stopped."
-    if not force:
-        # The Lambda cannot see run state without the database, so this is a
-        # reminder rather than a hard guard. /status shows the authoritative view.
-        _ec2.stop_instances(InstanceIds=[INSTANCE_ID])
-        return "Stopping. (Check `/status` first if a run may still be executing.)"
-    _ec2.stop_instances(InstanceIds=[INSTANCE_ID], Force=True)
-    return "Force-stopping."
+        return f"✅ Instance {INSTANCE_ID} is already stopped."
+    # The Lambda cannot see run state without the database, so this is not a guard
+    # against stopping mid-run; the console shows that.
+    _ec2.stop_instances(InstanceIds=[INSTANCE_ID], Force=force)
+    return f"🛑 {'Force-stop' if force else 'Stop'} signal successfully sent to {INSTANCE_ID}."
 
 
 def _uptime_minutes() -> int | None:
@@ -126,49 +208,34 @@ def _uptime_minutes() -> int | None:
     return int((datetime.now(UTC) - inst["LaunchTime"]).total_seconds() // 60)
 
 
-def _status() -> str:
-    state = _instance_state()
-    lines = [f"*Engine:* `{state}`"]
-    if state == "running":
-        up = _uptime_minutes()
-        if up is not None and MAX_RUNTIME_MINUTES:
-            lines.append(f"Up {up} min; stops automatically at {MAX_RUNTIME_MINUTES} min.")
-    if state == "running" and CONSOLE_URL:
-        lines.append(CONSOLE_URL)
-    lines.append("")
-    lines.append("_Run status and P&L live in the console; this bot cannot trade._")
-    return "\n".join(lines)
+HELP = """🤖 ATOM control
+
+/info or /status - instance details, state and uptime
+/start - bring the engine up and tell me when the site is serving
+/stop - shut it down (/stop force to override)
+/help - this
+
+The Status, Start and Stop buttons do the same.
+
+This bot cannot trade. Trading actions are only available in the console, where
+the full context is visible. That is deliberate."""
 
 
-HELP = """*ATOM control*
-
-`/start` — bring the engine up
-`/stop` — shut it down (`/stop force` to override)
-`/status` — instance state and console URL
-
-Or tap the Status / Start / Stop buttons.
-`/help` — this
-
-Trading actions are only available in the console, where the full context is
-visible. That is deliberate.
-"""
-
-
-def _dispatch(text: str) -> str:
+def _dispatch(text: str, chat_id: int, who: str) -> str:
     command, _, rest = text.strip().partition(" ")
     command = command.split("@", 1)[0].lower()  # strip @botname in groups
-    if command in ("status", "start", "stop"):  # the keyboard buttons send bare words
+    if command in ("status", "start", "stop", "info"):  # the buttons send bare words
         command = "/" + command
 
     if command == "/start":
-        return _start()
+        return _start(chat_id, who)
     if command == "/stop":
-        return _stop(force=rest.strip().lower() == "force")
-    if command == "/status":
-        return _status()
+        return _stop(chat_id, who, force=rest.strip().lower() == "force")
+    if command in ("/status", "/info"):
+        return _info()
     if command == "/help":
         return HELP
-    return f"Unknown command `{command}`. Try `/help`."
+    return f"❓ Unknown command {command}. Try /help."
 
 
 def _enforce_max_runtime() -> dict[str, Any]:
@@ -183,7 +250,7 @@ def _enforce_max_runtime() -> dict[str, Any]:
     _ec2.stop_instances(InstanceIds=[INSTANCE_ID])
     log.info("stopping: up %s min, limit %s", up, MAX_RUNTIME_MINUTES)
     for user_id in _allowed_user_ids():
-        _send(user_id, f"Engine stopped automatically after {MAX_RUNTIME_MINUTES} min.")
+        _send(user_id, f"⏱️ Engine stopped automatically after {MAX_RUNTIME_MINUTES} min.")
     return {"stopped": True, "uptime_minutes": up}
 
 
@@ -196,6 +263,10 @@ def handler(event: dict[str, Any], _context: object) -> dict[str, Any]:
     """
     if event.get("source") == "aws.events" or event.get("action") == "enforce_max_runtime":
         return _enforce_max_runtime()
+    # Like the schedule above, only our own invoke() sets a top-level "action"; a
+    # request through the Function URL cannot, its fields all sit under headers/body.
+    if event.get("action") == "announce_when_up":
+        return _announce_when_up(int(event["chat_id"]))
 
     # The Function URL cannot use AWS_IAM auth (Telegram cannot sign requests), so
     # the secret token IS the authentication and is therefore mandatory.
@@ -225,10 +296,10 @@ def handler(event: dict[str, Any], _context: object) -> dict[str, Any]:
         return {"statusCode": 200, "body": "ignored"}
 
     try:
-        reply = _dispatch(text)
+        reply = _dispatch(text, chat_id, (message.get("from") or {}).get("first_name") or "Someone")
     except Exception:
         log.exception("command failed")
-        reply = "Command failed. Check CloudWatch logs for `atom-control`."
+        reply = "❌ Command failed. Check the CloudWatch logs for atom-control."
 
     _send(chat_id, reply)
     return {"statusCode": 200, "body": "ok"}

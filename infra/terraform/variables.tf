@@ -77,7 +77,7 @@ variable "max_runtime_minutes" {
 }
 
 variable "console_host" {
-  description = "Hostname the console is served on; shown by the Telegram bot."
+  description = "Hostname the console is served on; shown and health-checked by the Telegram bot. Switch to the apex (metaalgocapital.com) together with the DNS record and deploy."
   type        = string
-  default     = "metaalgocapital.com"
+  default     = "app.metaalgocapital.com"
 }

@@ -44,7 +44,12 @@ def main() -> None:
         r = c.post(f"{api}/setWebhook", data={"url": url, "secret_token": webhook_secret,
                                               "allowed_updates": json.dumps(["message"])}).json()
         print("setWebhook:", r.get("description"))
-        cmds = [("status", "Instance state"), ("start", "Bring the engine up"), ("stop", "Shut it down")]
+        cmds = [
+            ("info", "Instance details and state"),
+            ("status", "Instance details and state"),
+            ("start", "Bring the engine up"),
+            ("stop", "Shut it down"),
+        ]
         r = c.post(f"{api}/setMyCommands",
                    data={"commands": json.dumps([{"command": k, "description": d} for k, d in cmds])}).json()
         print("setMyCommands:", r.get("ok"))

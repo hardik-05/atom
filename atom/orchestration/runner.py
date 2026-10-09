@@ -114,6 +114,12 @@ class RunService:
             snapshot_id = universes.snapshot(
                 conn, universe_id=universe_id, effective_from=today, generated_by=actor
             )
+            # A fresh plan replaces any earlier one still waiting: only one can be released, and
+            # two live plans would leave the operator guessing which is current.
+            for old in runs.open_plans(
+                conn, account_id=account_id, universe_id=universe_id, trade_date=today
+            ):
+                self._supersede(conn, int(old["run_id"]), actor)
             batch_id = runs.create_batch(conn, triggered_by=actor, trade_date=today)
             run_id = runs.create_run(
                 conn,
@@ -180,14 +186,14 @@ class RunService:
                 gate="onboarding",
                 account_id=aid,
             )
-        existing = runs.live_execute_run(
+        released = runs.released_execute_run(
             conn, account_id=aid, universe_id=universe_id, trade_date=today
         )
-        if existing:
+        if released:
             raise PreflightError(
-                f"run {existing['run_id']} already exists for today ({existing['status']}); "
-                "discard it first if it should be replaced",
-                gate="one_run_per_day",
+                f"run {released['run_id']} was already released today; settle it instead "
+                "(only one release per account and universe per day)",
+                gate="one_release_per_day",
                 account_id=aid,
             )
         if mode == "LIVE":
@@ -546,6 +552,22 @@ class RunService:
                 # (D-063). Always, even with no new tranches — a stale GTT from an
                 # earlier run is exactly what the cancel exists to clear.
                 self._cancel_and_verify(run, gateway)
+                # Claimed only now, once every check has passed and the next step sends
+                # orders: a release that stops earlier leaves the day's slot free. The unique
+                # index makes a concurrent second release fail here, before anything is sent.
+                with transaction(self.engine.pool) as conn:
+                    other = runs.released_execute_run(
+                        conn,
+                        account_id=int(run["trading_account_id"]),
+                        universe_id=int(run["universe_id"]),
+                        trade_date=today,
+                    )
+                    if other:
+                        raise ValidationError(
+                            f"run {other['run_id']} was already released today; "
+                            "only one release per account and universe per day"
+                        )
+                    runs.claim_release(conn, run_id)
                 ordered = [o for o in intents if o["side"] == "SELL"] + [
                     o for o in intents if o["side"] == "BUY"
                 ]
@@ -865,6 +887,19 @@ class RunService:
         return {"mode": "DRY", "new_fills": new_fills, "pending": pending, "expired": expired}
 
     # ================================================================ discard
+    @staticmethod
+    def _supersede(conn: Any, run_id: int, actor: str) -> None:
+        for o in orders.orders_for_run(conn, run_id):
+            if o["status"] == "INTENT":
+                orders.mark_status(
+                    conn,
+                    int(o["order_request_id"]),
+                    status="CANCELLED",
+                    reject_reason=f"superseded by a newer plan ({actor})",
+                )
+        runs.log(conn, run_id, level="INFO", stage="PLAN", message="superseded by a newer plan")
+        runs.set_status(conn, run_id, "FAILED")
+
     def discard(self, run_id: int, *, actor: str) -> None:
         with transaction(self.engine.pool) as conn:
             run = runs.get_run(conn, run_id)

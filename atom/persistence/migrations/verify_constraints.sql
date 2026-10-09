@@ -303,26 +303,24 @@ SELECT pg_temp.expect_reject(
     'broker_session_cleared_ck');
 
 -- --------------------------------------------------------------------------
--- Invariant 3 (D-057e) — one execute run per account / universe / day
+-- Invariant 3 (0020) -- many plans per account / universe / day, one release
 -- --------------------------------------------------------------------------
 DO $do$ BEGIN RAISE NOTICE '== runs =='; END $do$;
-SELECT pg_temp.expect_reject($$
-    INSERT INTO atom.run
-        (trading_account_id, universe_id, run_type, execution_mode, trade_date,
-         status, config_snapshot)
-    SELECT trading_account_id, universe_id, 'EXECUTE', 'DRY', trade_date,
-           'QUEUED', '{}'::jsonb
-    FROM atom.run LIMIT 1
-$$, 'run_one_execute_per_day_uk');
-
--- ... but a FAILED run does not consume the slot, so a failure can be retried
-UPDATE atom.run SET status = 'FAILED';
+-- a second plan is allowed
 INSERT INTO atom.run
     (trading_account_id, universe_id, run_type, execution_mode, trade_date,
      status, config_snapshot)
-SELECT trading_account_id, universe_id, 'EXECUTE', 'DRY', trade_date, 'QUEUED', '{}'::jsonb
+SELECT trading_account_id, universe_id, 'EXECUTE', 'DRY', trade_date, 'EXECUTING', '{}'::jsonb
 FROM atom.run LIMIT 1;
-SELECT pg_temp.check_that('D-057e: a FAILED run does not consume the day''s slot', true);
+SELECT pg_temp.check_that('0020: a second plan for the day is accepted', true);
+
+-- ... but only one of them can be released
+UPDATE atom.run SET released_at = now()
+WHERE run_id = (SELECT min(run_id) FROM atom.run);
+SELECT pg_temp.expect_reject($$
+    UPDATE atom.run SET released_at = now()
+    WHERE run_id = (SELECT max(run_id) FROM atom.run)
+$$, 'run_one_release_per_day_uk');
 
 -- A candidate that failed a gate cannot also have been acted on
 SELECT pg_temp.expect_reject($$

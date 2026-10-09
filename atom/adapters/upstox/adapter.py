@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import gzip
 import json
+import logging
 import threading
 from collections.abc import Callable, Iterable, Sequence
 from datetime import UTC, date, datetime
@@ -70,6 +71,8 @@ SUSPENDED_URL = (
     "https://assets.upstox.com/market-quote/instruments/exchange/suspended-instrument.json.gz"
 )
 QUOTE_BATCH = 500
+
+log = logging.getLogger(__name__)
 
 HttpFactory = Callable[[AccountRef | None], BrokerHttpClient]
 
@@ -303,12 +306,38 @@ class UpstoxAdapter:
                 if row.get("isin")
             )
             rows = self._gz_json(client, INSTRUMENTS_URL, required=True)
+        suspended = self._plausible_suspended(rows, suspended)
         out = []
         for row in rows:
             item = m.instrument(row, suspended=suspended)
             if item is not None:
                 out.append(item)
         return out
+
+    @staticmethod
+    def _plausible_suspended(
+        rows: list[dict[str, Any]], suspended: frozenset[str]
+    ) -> frozenset[str]:
+        """Drop a suspended list that covers most of the market.
+
+        Upstox's file has been seen listing essentially every equity (RELIANCE, TCS, every
+        ETF), which would mark the whole universe untradable and block every buy. A real
+        suspension list is a small fraction, so a list covering over half of a sizeable
+        equity master is treated as broken and ignored; the broker still rejects a truly
+        suspended order at placement.
+        """
+        equity = {
+            str(r["isin"])
+            for r in rows
+            if r.get("segment") in m.EQUITY_SEGMENTS and r.get("isin")
+        }
+        if len(equity) >= 100 and len(equity & suspended) > len(equity) / 2:
+            log.warning(
+                "upstox suspended list covers %d of %d equities; ignoring it",
+                len(equity & suspended), len(equity),
+            )
+            return frozenset()
+        return suspended
 
     @staticmethod
     def _gz_json(client: httpx.Client, url: str, *, required: bool) -> list[dict[str, Any]]:
