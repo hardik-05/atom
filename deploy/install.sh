@@ -1,7 +1,7 @@
 #!/bin/bash
 # Install one ATOM release on the engine host. Run as root, via SSM:
 #
-#   install.sh <version> <artifacts-bucket> <public-host>
+#   install.sh <version> <artifacts-bucket> <public-host> [<alias-host>]
 #
 # Idempotent: re-running with the same version re-installs it, and anything
 # already in place (the atom user, Caddy, the env file) is left as it is or
@@ -12,6 +12,7 @@ set -euo pipefail
 VERSION="${1:?version}"
 BUCKET="${2:?artifacts bucket}"
 PUBLIC_HOST="${3:?public host}"
+ALIAS_HOST="${4:-}"  # optional: a hostname that redirects to PUBLIC_HOST
 REGION="ap-south-1"
 ROOT=/opt/atom
 RELEASE="$ROOT/releases/$VERSION"
@@ -104,6 +105,14 @@ WantedBy=multi-user.target
 UNIT
 fi
 sed "s|__PUBLIC_HOST__|$PUBLIC_HOST|" "$RELEASE/deploy/Caddyfile.tmpl" > /etc/caddy/Caddyfile
+if [ -n "$ALIAS_HOST" ]; then
+  # The old hostname keeps working: it sends the browser to the new one, path intact.
+  printf '
+%s {
+	redir https://%s{uri} permanent
+}
+' "$ALIAS_HOST" "$PUBLIC_HOST" >> /etc/caddy/Caddyfile
+fi
 /usr/local/bin/caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile >/dev/null
 # Ownership AFTER validate: validating provisions the log writer, which creates
 # access.log as root — and Caddy, running as its own user, then cannot open it

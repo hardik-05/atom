@@ -76,6 +76,9 @@ def main() -> None:
     parser.add_argument("--instance-id", default="i-046d2247ea21f668f")
     parser.add_argument("--bucket", default="atom-artifacts-905221883695-prod")
     parser.add_argument("--host", default="app.metaalgocapital.com")
+    parser.add_argument(
+        "--alias-host", default="", help="a hostname that redirects to --host (e.g. the old one)"
+    )
     parser.add_argument("--skip-build", action="store_true")
     parser.add_argument("--allow-dirty", action="store_true")
     args = parser.parse_args()
@@ -121,7 +124,7 @@ def main() -> None:
         f"aws s3 cp --only-show-errors s3://{args.bucket}/releases/{version}.tar.gz /tmp/atom-release.tgz --region {args.region}",
         "rm -rf /tmp/atom-install && mkdir -p /tmp/atom-install",
         "tar -xzf /tmp/atom-release.tgz -C /tmp/atom-install deploy/install.sh",
-        f"bash /tmp/atom-install/deploy/install.sh {version} {args.bucket} {args.host}",
+        f"bash /tmp/atom-install/deploy/install.sh {version} {args.bucket} {args.host} {args.alias_host}",
     ]
     command_id = ssm.send_command(
         InstanceIds=[args.instance_id],

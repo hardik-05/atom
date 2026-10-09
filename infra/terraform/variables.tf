@@ -69,3 +69,15 @@ variable "ssh_key_name" {
   type        = string
   default     = null
 }
+
+variable "max_runtime_minutes" {
+  description = "Hard ceiling on one start-to-stop session. The control Lambda stops the instance this many minutes after it started, whatever the console is doing. 0 disables."
+  type        = number
+  default     = 60
+}
+
+variable "console_host" {
+  description = "Hostname the console is served on; shown by the Telegram bot."
+  type        = string
+  default     = "metaalgocapital.com"
+}

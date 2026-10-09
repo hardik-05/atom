@@ -1,0 +1,2 @@
+install,atom/persistence/migrations/0019_history_sync_state.sql
+uninstall,db/uninstall/0019_history_sync_state.sql

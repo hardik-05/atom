@@ -35,7 +35,8 @@ resource "aws_lambda_function" "control" {
       # No secrets here. A Lambda environment variable is visible in the console
       # and to anyone with GetFunctionConfiguration; the bot token is read from
       # SSM at invocation instead.
-      ATOM_CONSOLE_URL = var.env == "prod" && var.investor_count > 0 ? "https://${aws_eip.investor[0].public_ip}" : ""
+      ATOM_CONSOLE_URL         = "https://${var.console_host}"
+      ATOM_MAX_RUNTIME_MINUTES = tostring(var.max_runtime_minutes)
     }
   }
 
@@ -85,4 +86,28 @@ resource "aws_ssm_parameter" "telegram" {
   lifecycle {
     ignore_changes = [value]
   }
+}
+
+# ---------------------------------------------------------------------------
+# Hard ceiling on one session: every 5 minutes the control Lambda stops the
+# instance if it has been up longer than var.max_runtime_minutes.
+# ---------------------------------------------------------------------------
+
+resource "aws_cloudwatch_event_rule" "max_runtime" {
+  name                = "atom-max-runtime"
+  description         = "Stop the engine instance once it exceeds max_runtime_minutes"
+  schedule_expression = "rate(5 minutes)"
+}
+
+resource "aws_cloudwatch_event_target" "max_runtime" {
+  rule = aws_cloudwatch_event_rule.max_runtime.name
+  arn  = aws_lambda_function.control.arn
+}
+
+resource "aws_lambda_permission" "max_runtime" {
+  statement_id  = "AllowEventBridgeMaxRuntime"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.control.function_name
+  principal     = "events.amazonaws.com"
+  source_arn    = aws_cloudwatch_event_rule.max_runtime.arn
 }

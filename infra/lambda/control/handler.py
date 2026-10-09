@@ -19,6 +19,7 @@ import os
 import urllib.error
 import urllib.parse
 import urllib.request
+from datetime import UTC, datetime
 from typing import Any
 
 import boto3
@@ -30,6 +31,9 @@ REGION = os.environ["AWS_REGION"]
 INSTANCE_ID = os.environ["ATOM_INSTANCE_ID"]
 SSM_PREFIX = os.environ.get("ATOM_SSM_PREFIX", "/atom/telegram")
 CONSOLE_URL = os.environ.get("ATOM_CONSOLE_URL", "")
+# Hard ceiling on one start-to-stop session, in minutes. Set in Terraform
+# (max_runtime_minutes); 0 disables it.
+MAX_RUNTIME_MINUTES = int(os.environ.get("ATOM_MAX_RUNTIME_MINUTES", "60"))
 
 TELEGRAM_API = "https://api.telegram.org"
 
@@ -56,10 +60,23 @@ def _allowed_user_ids() -> set[int]:
     return {int(part) for part in raw.replace(" ", "").split(",") if part}
 
 
+# Three buttons under the message box; tapping one sends its label as text.
+KEYBOARD = {
+    "keyboard": [[{"text": "Status"}, {"text": "Start"}, {"text": "Stop"}]],
+    "resize_keyboard": True,
+    "is_persistent": True,
+}
+
+
 def _send(chat_id: int, text: str) -> None:
     token = _secret("bot_token")
     payload = urllib.parse.urlencode(
-        {"chat_id": chat_id, "text": text, "parse_mode": "Markdown"}
+        {
+            "chat_id": chat_id,
+            "text": text,
+            "parse_mode": "Markdown",
+            "reply_markup": json.dumps(KEYBOARD),
+        }
     ).encode()
     req = urllib.request.Request(f"{TELEGRAM_API}/bot{token}/sendMessage", data=payload)
     try:
@@ -101,9 +118,21 @@ def _stop(force: bool) -> str:
     return "Force-stopping."
 
 
+def _uptime_minutes() -> int | None:
+    """Minutes since the instance last started (LaunchTime resets on every start)."""
+    inst = _ec2.describe_instances(InstanceIds=[INSTANCE_ID])["Reservations"][0]["Instances"][0]
+    if inst["State"]["Name"] != "running":
+        return None
+    return int((datetime.now(UTC) - inst["LaunchTime"]).total_seconds() // 60)
+
+
 def _status() -> str:
     state = _instance_state()
     lines = [f"*Engine:* `{state}`"]
+    if state == "running":
+        up = _uptime_minutes()
+        if up is not None and MAX_RUNTIME_MINUTES:
+            lines.append(f"Up {up} min; stops automatically at {MAX_RUNTIME_MINUTES} min.")
     if state == "running" and CONSOLE_URL:
         lines.append(CONSOLE_URL)
     lines.append("")
@@ -116,6 +145,8 @@ HELP = """*ATOM control*
 `/start` — bring the engine up
 `/stop` — shut it down (`/stop force` to override)
 `/status` — instance state and console URL
+
+Or tap the Status / Start / Stop buttons.
 `/help` — this
 
 Trading actions are only available in the console, where the full context is
@@ -126,6 +157,8 @@ visible. That is deliberate.
 def _dispatch(text: str) -> str:
     command, _, rest = text.strip().partition(" ")
     command = command.split("@", 1)[0].lower()  # strip @botname in groups
+    if command in ("status", "start", "stop"):  # the keyboard buttons send bare words
+        command = "/" + command
 
     if command == "/start":
         return _start()
@@ -138,6 +171,22 @@ def _dispatch(text: str) -> str:
     return f"Unknown command `{command}`. Try `/help`."
 
 
+def _enforce_max_runtime() -> dict[str, Any]:
+    """Scheduled check: stop the instance once it has run MAX_RUNTIME_MINUTES.
+
+    Independent of the on-instance idle timer, which only fires after an hour of
+    NO console use: a session left open, or a forgotten start, still ends.
+    """
+    up = _uptime_minutes()
+    if not MAX_RUNTIME_MINUTES or up is None or up < MAX_RUNTIME_MINUTES:
+        return {"stopped": False, "uptime_minutes": up}
+    _ec2.stop_instances(InstanceIds=[INSTANCE_ID])
+    log.info("stopping: up %s min, limit %s", up, MAX_RUNTIME_MINUTES)
+    for user_id in _allowed_user_ids():
+        _send(user_id, f"Engine stopped automatically after {MAX_RUNTIME_MINUTES} min.")
+    return {"stopped": True, "uptime_minutes": up}
+
+
 def handler(event: dict[str, Any], _context: object) -> dict[str, Any]:
     """Lambda Function URL entry point.
 
@@ -145,6 +194,9 @@ def handler(event: dict[str, Any], _context: object) -> dict[str, Any]:
     that does not answer within ~60s — which would double-start the instance.
     ``StartInstances`` is idempotent, but not relying on that is better.
     """
+    if event.get("source") == "aws.events" or event.get("action") == "enforce_max_runtime":
+        return _enforce_max_runtime()
+
     # The Function URL cannot use AWS_IAM auth (Telegram cannot sign requests), so
     # the secret token IS the authentication and is therefore mandatory.
     headers = {k.lower(): v for k, v in (event.get("headers") or {}).items()}
